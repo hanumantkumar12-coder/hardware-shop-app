@@ -4,6 +4,16 @@
 -- Lifetime-free stack • append-only audit • RLS protected
 -- ============================================================
 
+-- ---------- profiles (members) FIRST ----------
+create table if not exists profiles (
+  id      uuid primary key references auth.users(id) on delete cascade,
+  name    text,
+  phone   text,
+  role    text not null default 'staff' check (role in ('owner','staff')),
+  active  boolean not null default false,
+  created_at timestamptz default now()
+);
+
 -- ---------- helpers ----------
 create or replace function is_active_member() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -14,16 +24,6 @@ create or replace function is_owner() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists(select 1 from profiles where id = auth.uid() and role = 'owner' and active);
 $$;
-
--- ---------- profiles (members) ----------
-create table if not exists profiles (
-  id      uuid primary key references auth.users(id) on delete cascade,
-  name    text,
-  phone   text,
-  role    text not null default 'staff' check (role in ('owner','staff')),
-  active  boolean not null default false,
-  created_at timestamptz default now()
-);
 
 -- first ever signup becomes OWNER+active; later signups are inactive staff
 create or replace function handle_new_user() returns trigger
