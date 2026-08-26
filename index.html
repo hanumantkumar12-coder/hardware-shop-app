@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#0d6efd">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>ShopHisaab — Hardware & Paint</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,'Noto Sans Devanagari',sans-serif}
+body{background:#f1f4f9;color:#1c2430;padding-bottom:76px}
+header{position:sticky;top:0;z-index:20;background:#0d6efd;color:#fff;padding:12px 14px;display:flex;justify-content:space-between;align-items:center}
+header h1{font-size:17px;font-weight:700}
+header button{background:rgba(255,255,255,.18);border:none;color:#fff;border-radius:8px;padding:6px 10px;font-size:13px}
+.view{display:none;padding:14px;max-width:720px;margin:0 auto}
+.view.on{display:block}
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+.card{background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 4px rgba(16,36,94,.08)}
+.card .lbl{font-size:12px;color:#5b6b7f;margin-bottom:4px}
+.card .val{font-size:20px;font-weight:800}
+.card.warn .val{color:#dc3545}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;border-top:1px solid #e3e9f2;z-index:30}
+nav button{flex:1;background:none;border:none;padding:9px 2px;font-size:11px;color:#5b6b7f;display:flex;flex-direction:column;gap:2px;align-items:center}
+nav button .ic{font-size:19px}
+nav button.on{color:#0d6efd;font-weight:700}
+.search{width:100%;padding:11px 14px;border-radius:12px;border:1px solid #dbe3ee;background:#fff;font-size:15px;margin-bottom:10px}
+.rowitem{background:#fff;border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;box-shadow:0 1px 3px rgba(16,36,94,.06)}
+.rowitem .t{font-weight:600;font-size:15px}
+.rowitem .s{font-size:12px;color:#5b6b7f;margin-top:2px}
+.rowitem.low .t::after{content:"⚠";margin-left:6px;color:#dc3545}
+.pill{font-weight:800;font-size:14px;white-space:nowrap}
+.pill.red{color:#dc3545}.pill.grn{color:#12855c}
+.fab{position:fixed;right:16px;bottom:88px;background:#0d6efd;color:#fff;border:none;border-radius:50%;width:54px;height:54px;font-size:26px;box-shadow:0 4px 12px rgba(13,110,253,.45);z-index:25}
+.btn{background:#0d6efd;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-size:14px;font-weight:600;width:100%}
+.btn.gray{background:#e8edf5;color:#33475e}
+.btn.red{background:#dc3545}.btn.grn{background:#12855c}
+.btn.sm{padding:7px 10px;font-size:12px;width:auto}
+.modalbg{display:none;position:fixed;inset:0;background:rgba(10,20,40,.55);z-index:50;padding:16px;overflow:auto}
+.modalbg.on{display:block}
+.modal{background:#fff;border-radius:16px;padding:16px;max-width:520px;margin:24px auto}
+.modal h3{margin-bottom:10px;font-size:16px}
+.field{margin-bottom:10px}
+.field label{display:block;font-size:12px;color:#5b6b7f;margin-bottom:3px}
+.field input,.field select,.field textarea{width:100%;padding:10px;border:1px solid #dbe3ee;border-radius:10px;font-size:15px;background:#fbfcfe}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.saleitem{background:#f6f8fc;border-radius:10px;padding:8px;margin-bottom:8px;display:grid;grid-template-columns:1fr 62px 78px 30px;gap:6px;align-items:center;font-size:14px}
+.saleitem input{padding:7px;border:1px solid #dbe3ee;border-radius:8px;font-size:14px;width:100%}
+.totline{display:flex;justify-content:space-between;font-size:15px;padding:4px 2px}
+.totline.big{font-size:19px;font-weight:800}
+#toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#1c2430;color:#fff;padding:10px 18px;border-radius:24px;font-size:14px;display:none;z-index:99}
+.setup{background:#fff3cd;border:1px solid #ffe69c;color:#664d03;border-radius:12px;padding:12px;font-size:13px;margin:14px auto;max-width:720px;line-height:1.5}
+.muted{color:#5b6b7f;font-size:12px}
+.secH{font-size:13px;font-weight:800;color:#5b6b7f;text-transform:uppercase;letter-spacing:.4px;margin:16px 0 8px}
+#print-area{display:none}
+@media print{body *{visibility:hidden}#print-area,#print-area *{visibility:visible;display:block}#print-area{position:absolute;top:0;left:0;width:100%;padding:12px}}
+table.audit{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;font-size:12px}
+table.audit td,table.audit th{padding:8px;border-bottom:1px solid #eef2f8;text-align:left}
+table.audit th{background:#f2f6fc;font-size:11px;text-transform:uppercase;color:#5b6b7f}
+.tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:700}
+.tag.I{background:#d1f2df;color:#12855c}.tag.U{background:#ffeeba;color:#8a6d00}.tag.D{background:#f8d7da;color:#a12633}
+</style>
+</head>
+<body>
+
+<div class="setup" id="setupBanner" style="display:none">
+⚠️ <b>Setup pending:</b> Open <b>config.js</b> in this repo (GitHub → pencil icon ✏️) and paste your free <b>Supabase Project URL</b> + <b>anon key</b>. Full steps in <b>README.md</b>.
+</div>
+
+<!-- AUTH -->
+<div class="view on" id="v-auth" style="max-width:380px;margin-top:8vh">
+  <div style="text-align:center;margin-bottom:22px">
+    <img src="icons/icon-192.png" width="84" style="border-radius:20px" alt="">
+    <h2 style="margin-top:10px">ShopHisaab 🏪</h2>
+    <p class="muted" data-i18n="authSub">Stock • Sales • Udhaar • Audit</p>
+  </div>
+  <div class="field"><label data-i18n="email">Email</label><input id="li-email" type="email" placeholder="owner@gmail.com"></div>
+  <div class="field"><label data-i18n="pass">Password</label><input id="li-pass" type="password" placeholder="••••••••"></div>
+  <button class="btn" onclick="doLogin()" data-i18n="login">Login</button>
+  <p class="muted" style="margin-top:10px;text-align:center" data-i18n="inviteNote">New member? Ask the owner to invite you from Supabase → Auth → Users.</p>
+</div>
+
+<!-- APP -->
+<header id="hdr" style="display:none">
+  <h1>🏪 ShopHisaab</h1>
+  <div style="display:flex;gap:6px">
+    <button onclick="toggleLang()" id="langBtn">हिंदी</button>
+    <button onclick="logout()" data-i18n="logout">Logout</button>
+  </div>
+</header>
+
+<main id="app" style="display:none">
+
+<section class="view" id="v-home"></section>
+<section class="view" id="v-stock"></section>
+<section class="view" id="v-sale"></section>
+<section class="view" id="v-khata"></section>
+<section class="view" id="v-more"></section>
+</main>
+
+<nav id="navbar" style="display:none">
+  <button data-v="home" class="on"><span class="ic">🏠</span><span data-i18n="navHome">Home</span></button>
+  <button data-v="stock"><span class="ic">📦</span><span data-i18n="navStock">Stock</span></button>
+  <button data-v="sale"><span class="ic">🧾</span><span data-i18n="navSale">Sale</span></button>
+  <button data-v="khata"><span class="ic">📒</span><span data-i18n="navKhata">Khata</span></button>
+  <button data-v="more"><span class="ic">⚙️</span><span data-i18n="navMore">More</span></button>
+</nav>
+
+<div class="modalbg" id="modalbg" onclick="if(event.target===this)closeModal()"><div class="modal" id="modal"></div></div>
+<div id="toast"></div>
+<div id="print-area"></div>
+
+<script>
+/* ================= CONFIG GUARD ================= */
+const CONFIGURED = SUPABASE_URL && !SUPABASE_URL.includes('PASTE_');
+const db = CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+if (!CONFIGURED) document.getElementById('setupBanner').style.display = 'block';
+
+/* ================= i18n ================= */
+const L = {
+  en:{authSub:"Stock • Sales • Udhaar • Audit",login:"Login",logout:"Logout",email:"Email",pass:"Password",
+  inviteNote:"New member? Ask the owner to invite you from Supabase → Auth → Users.",
+  navHome:"Home",navStock:"Stock",navSale:"Sale",navKhata:"Khata",navMore:"More",
+  todaySale:"Today's Sale",monthSale:"This Month",totalUdhaar:"Total Udhaar",lowStock:"Low Stock Items",
+  products:"Products",addProduct:"+ Add Product",searchPh:"Search product…",cost:"Cost ₹",sell:"Sell ₹",
+  stock:"Stock",minLvl:"Min level",unit:"Unit",barcode:"Barcode",save:"Save",cancel:"Cancel",del:"Delete",
+  newSale:"New Sale",customer:"Customer",walkIn:"🚶 Walk-in",addItem:"Add item",product:"Product",qty:"Qty",
+  price:"Price ₹",subTotal:"Subtotal",discount:"Discount ₹",grandTotal:"TOTAL",paidAmt:"Paid ₹",
+  mode:"Payment mode",cash:"Cash",upi:"UPI",credit:"Udhaar (Credit)",saveSale:"✅ Save Sale",
+  salesHistory:"Sales History",customers:"Customers",addCust:"+ Add Customer",balance:"Balance",
+  khataOf:"Khata",recvPay:"Receive Payment",amount:"Amount ₹",note:"Note",waShare:"WhatsApp",print:"Print",
+  purchases:"Purchases",newPurchase:"+ Record Purchase",supplier:"Supplier",auditLog:"Audit Log",
+  settings:"Settings",members:"Members",exportCsv:"Export CSV",langName:"English",
+  noData:"Nothing here yet.",saved:"Saved ✓",confirmDel:"Delete this?",low:"LOW!",
+  whoChanged:"Who changed what"},
+  hi:{authSub:"स्टॉक • बिक्री • उधार • ऑडिट",login:"लॉगिन",logout:"लॉगआउट",email:"ईमेल",pass:"पासवर्ड",
+  inviteNote:"नया सदस्य? मालिक Supabase → Auth → Users से invite करे।",
+  navHome:"होम",navStock:"स्टॉक",navSale:"बिक्री",navKhata:"खाता",navMore:"और",
+  todaySale:"आज की बिक्री",monthSale:"इस महीने",totalUdhaar:"कुल उधार",lowStock:"कम स्टॉक आइटम",
+  products:"सामान / स्टॉक",addProduct:"+ नया सामान",searchPh:"सामान खोजें…",cost:"खरीद ₹",sell:"बेच ₹",
+  stock:"स्टॉक",minLvl:"मिनि. लेवल",unit:"यूनिट",barcode:"बारकोड",save:"सेव करें",cancel:"रद्द",del:"हटाएं",
+  newSale:"नई बिक्री",customer:"ग्राहक",walkIn:"🚶 वॉक-इन",addItem:"+ आइटम जोड़ें",product:"सामान",qty:"मात्रा",
+  price:"दाम ₹",subTotal:"सब-टोटल",discount:"छूट ₹",grandTotal:"कुल",paidAmt:"जमा ₹",
+  mode:"भुगतान",cash:"नकद",upi:"UPI",credit:"उधार",saveSale:"✅ बिक्री सेव",
+  salesHistory:"बिक्री इतिहास",customers:"ग्राहक",addCust:"+ नया ग्राहक",balance:"बाकी",
+  khataOf:"खाता",recvPay:"भुगतान जमा",amount:"रकम ₹",note:"नोट",waShare:"व्हाट्सएप",print:"प्रिंट",
+  purchases:"खरीद",newPurchase:"+ खरीद दर्ज",supplier:"सप्लायर",auditLog:"ऑडिट लॉग",
+  settings:"सेटिंग",members:"सदस्य",exportCsv:"CSV निकालें",langName:"English",
+  noData:"अभी कुछ नहीं है।",saved:"सेव हो गया ✓",confirmDel:"हटाएं?",low:"कम!",
+  whoChanged:"किसने क्या बदला"}
+};
+let lang = localStorage.getItem('lang') || 'en';
+const t = k => (L[lang][k] ?? L.en[k] ?? k);
+function applyI18n(){document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.dataset.i18n));
+  document.getElementById('langBtn').textContent = lang==='en'?'हिंदी':'English';
+  document.title = 'ShopHisaab';}
+function toggleLang(){lang = lang==='en'?'hi':'en';localStorage.setItem('lang',lang);applyI18n();render(current);}
+
+/* ================= helpers ================= */
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:2});
+const toast=(m)=>{const el=$('toast');el.textContent=m;el.style.display='block';setTimeout(()=>el.style.display='none',2200);};
+function modal(html){$('modal').innerHTML=html;$('modalbg').classList.add('on');}
+function closeModal(){$('modalbg').classList.remove('on');}
+async function one(q){const{data,error}=await q;if(error){toast('⚠ '+error.message);throw error;}return data;}
+let current='home', meProfile=null;
+
+/* ================= AUTH ================= */
+async function doLogin(){
+  if(!CONFIGURED)return toast('Edit config.js first!');
+  const email=$('li-email').value.trim(),pass=$('li-pass').value;
+  const{error}=await db.auth.signInWithPassword({email,password:pass});
+  if(error)return toast('⚠ '+error.message);
+  boot();
+}
+async function logout(){await db.auth.signOut();location.reload();}
+async function boot(){
+  if(!CONFIGURED)return;
+  const{data:{user}}=await db.auth.getUser();
+  if(!user)return;
+  let prof=await one(db.from('profiles').select('*').eq('id',user.id).maybeSingle());
+  if(!prof){prof={name:user.email,role:'staff'};}
+  meProfile={...prof,email:user.email};
+  $('v-auth').classList.remove('on');
+  $('hdr').style.display='flex';$('app').style.display='block';$('navbar').style.display='flex';
+  applyI18n();render('home');
+}
+
+/* ================= NAV ================= */
+document.querySelectorAll('#navbar button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#navbar button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');render(b.dataset.v);
+});
+function render(v){
+  current=v;
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('on'));
+  const map={home:'v-home',stock:'v-stock',sale:'v-sale',khata:'v-khata',more:'v-more'};
+  $(map[v]).classList.add('on');
+  ({home:rHome,stock:rStock,sale:rSale,khata:rKhata,more:rMore})[v]();
+}
+
+/* ================= HOME ================= */
+async function rHome(){
+  const v=$('v-home');v.innerHTML='<p class="muted">…</p>';
+  const today=new Date().toISOString().slice(0,10);
+  const month=new Date().toISOString().slice(0,7);
+  const[sales,prods]=await Promise.all([
+    one(db.from('sales').select('total,due_amount,created_at')),
+    one(db.from('products').select('name,current_stock,min_stock,reorder_level').order('current_stock'))
+  ]);
+  const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
+  const mSales=sales.filter(s=>s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
+  const udhaar=sales.reduce((a,b)=>a+ +(b.due_amount||0),0);
+  const lvl=p=>Math.min(p.min_stock??p.reorder_level??0,p.reorder_level??p.min_stock??0);
+  const low=prods.filter(p=>+(p.current_stock||0)<=Math.max(+(p.reorder_level||0),0));
+  v.innerHTML=`<div class="cards">
+    <div class="card"><div class="lbl">${t('todaySale')}</div><div class="val">${money(tSales)}</div></div>
+    <div class="card"><div class="lbl">${t('monthSale')}</div><div class="val">${money(mSales)}</div></div>
+    <div class="card ${udhaar>0?'warn':''}"><div class="lbl">${t('totalUdhaar')}</div><div class="val">${money(udhaar)}</div></div>
+    <div class="card ${low.length?'warn':''}"><div class="lbl">${t('lowStock')}</div><div class="val">${low.length}</div></div>
+  </div>
+  ${low.length?`<div class="secH">${t('lowStock')}</div>`+low.slice(0,8).map(p=>
+    `<div class="rowitem low"><div><div class="t">${esc(p.name)}</div></div><div class="pill red">${p.current_stock}</div></div>`).join('')
+  :`<p class="muted">✅ ${t('noData')}</p>`}`;
+}
+
+/* ================= STOCK ================= */
+async function rStock(){
+  const v=$('v-stock');
+  v.innerHTML=`<input class="search" placeholder="${t('searchPh')}" oninput="loadProducts(this.value)">
+   <button class="fab" title="${t('addProduct')}" onclick="editProduct()">＋</button><div id="plist"></div>`;
+  loadProducts('');
+}
+window._prods=[];
+async function loadProducts(q){
+  let Q=db.from('products').select('*').order('name');
+  if(q)Q=Q.ilike('name','%'+q+'%');
+  window._prods=await one(Q.limit(300));
+  $('plist').innerHTML=window._prods.length?window._prods.map((p,i)=>{
+    const low=+(p.current_stock||0)<=+(p.reorder_level||0)*1;
+    return `<div class="rowitem ${low?'low':''}" onclick="editProduct(${i})">
+      <div><div class="t">${esc(p.name)}</div><div class="s">${t('sell')} ${money(p.selling_price)} · ${t('cost')} ${meProfile.role==='owner'?money(p.purchase_price):'•••'}</div></div>
+      <div class="pill ${low?'red':'grn'}">${p.current_stock} ${esc(p.unit||'')}</div></div>`;}).join('')
+  :`<p class="muted">${t('noData')}</p>`;
+}
+function editProduct(i){
+  const p=i!=null?window._prods[i]:{};
+  modal(`<h3>${i!=null?t('products'):t('addProduct')}</h3>
+  <div class="field"><label>${t('product')}</label><input id="pf-name" value="${esc(p.name||'')}"></div>
+  <div class="grid2">
+    <div class="field"><label>${t('unit')}</label><input id="pf-unit" value="${esc(p.unit||'pcs')}"></div>
+    <div class="field"><label>${t('barcode')}</label><input id="pf-bc" value="${esc(p.barcode||'')}"></div>
+    <div class="field"><label>${t('cost')}</label><input id="pf-cost" type="number" value="${p.purchase_price??''}"></div>
+    <div class="field"><label>${t('sell')}</label><input id="pf-sell" type="number" value="${p.selling_price??''}"></div>
+    <div class="field"><label>${t('stock')}</label><input id="pf-stk" type="number" value="${p.current_stock??0}"></div>
+    <div class="field"><label>${t('minLvl')}</label><input id="pf-min" type="number" value="${p.reorder_level??0}"></div>
+  </div>
+  <button class="btn grn" onclick="saveProduct(${p.id??null})">${t('save')}</button>
+  <button class="btn gray" style="margin-top:8px" onclick="closeModal()">${t('cancel')}</button>
+  ${p.id?`<button class="btn red sm" style="margin-top:10px" onclick="delProduct(${p.id})">🗑 ${t('del')}</button>`:''}`);
+}
+async function saveProduct(id){
+  const rec={name:$('pf-name').value.trim(),unit:$('pf-unit').value.trim(),barcode:$('pf-bc').value.trim()||null,
+    purchase_price:+($('pf-cost').value||0),selling_price:+($('pf-sell').value||0),
+    current_stock:+($('pf-stk').value||0),reorder_level:+($('pf-min').value||0)};
+  if(!rec.name)return toast('Name?');
+  const q=id?db.from('products').update(rec).eq('id',id):db.from('products').insert(rec);
+  await one(q);closeModal();toast(t('saved'));loadProducts($('#q')?.value||'');render('stock');
+}
+async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));closeModal();render('stock');}
+
+/* ================= SALE ================= */
+let cart=[],saleCust=null;
+async function rSale(){
+  const v=$('v-sale');cart=cart.length?cart:[];saleCust=null;
+  v.innerHTML=`<h3 style="margin-bottom:10px">${t('newSale')}</h3>
+  <div class="field"><label>${t('customer')}</label><select id="sl-cust" onchange="saleCust=this.value||null"></select></div>
+  <div id="cart"></div>
+  <button class="btn gray" style="margin-bottom:10px" onclick="pickItem()">＋ ${t('addItem')}</button>
+  <div class="totline"><span>${t('subTotal')}</span><span id="t-sub">₹0</span></div>
+  <div class="totline"><span>${t('paidAmt')}</span><input id="sl-paid" type="number" value="0" style="width:110px;padding:6px;border:1px solid #dbe3ee;border-radius:8px"></div>
+  <div class="field"><label>${t('mode')}</label><select id="sl-mode">
+    <option value="cash">${t('cash')}</option><option value="upi">${t('upi')}</option><option value="credit">${t('credit')}</option></select></div>
+  <button class="btn grn" onclick="saveSale()">${t('saveSale')}</button>
+  <div class="secH">${t('salesHistory')}</div><div id="saleslist"><p class="muted">…</p></div>`;
+  const custs=await one(db.from('customers').select('id,name').order('name'));
+  $('sl-cust').innerHTML=`<option value="">${t('walkIn')}</option>`+custs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  drawCart();loadSales();
+}
+async function pickItem(){
+  const prods=await one(db.from('products').select('id,name,selling_price,current_stock,unit').order('name'));
+  modal(`<h3>${t('addItem')}</h3><input class="search" placeholder="${t('searchPh')}" oninput="flist(this.value)">
+   <div id="picklist" style="max-height:50vh;overflow:auto">${prods.map(ppick).join('')}</div>
+   <button class="btn gray" onclick="closeModal()">${t('cancel')}</button>`);
+  window._allp=prods;
+}
+function ppick(p){return `<div class="rowitem" onclick='addCart(${JSON.stringify({id:p.id,name:p.name,price:p.selling_price})})'>
+ <div class="t">${esc(p.name)}</div><div class="pill">${p.current_stock} ${esc(p.unit||'')}</div></div>`;}
+function flist(q){$('picklist').innerHTML=window._allp.filter(p=>p.name.toLowerCase().includes(q.toLowerCase())).map(ppick).join('');}
+function addCart(p){const ex=cart.find(c=>c.id===p.id);ex?ex.qty++:cart.push({...p,qty:1});drawCart();closeModal();}
+function rmCart(i){cart.splice(i,1);drawCart();}
+function drawCart(){
+  $('cart').innerHTML=cart.map((c,i)=>`<div class="saleitem">
+    <div>${esc(c.name)}</div>
+    <input type="number" min="0.01" step="any" value="${c.qty}" oninput="cart[${i}].qty=+this.value;calcTot()">
+    <input type="number" step="any" value="${c.price}" oninput="cart[${i}].price=+this.value;calcTot()">
+    <button class="btn red sm" onclick="rmCart(${i})">×</button></div>`).join('');
+  calcTot();
+}
+function calcTot(){const s=cart.reduce((a,c)=>a+c.qty*c.price,0);$('t-sub').textContent=money(s);return s;}
+async function saveSale(){
+  if(!cart.length)return toast('Empty!');
+  const total=calcTot(),paid=+($('sl-paid').value||0),mode=$('sl-mode').value;
+  const items=cart.map(c=>({product_id:c.id,qty:c.qty,unit_price:c.price}));
+  const sid=await one(db.rpc('create_sale',{p_customer_id:saleCust?+saleCust:null,p_items:items,p_paid:paid,p_mode:mode}));
+  closeModal&&0;toast(t('saved')+' #'+sid);
+  const custName=saleCust?$('sl-cust').selectedOptions[0].textContent:t('walkIn');
+  const billLines=cart.map(c=>`${c.name} ×${c.qty} = ₹${(c.qty*c.price).toFixed(0)}`).join('\n');
+  const bill=`🧾 *Bill #${sid}*\n${custName}\n${billLines}\n*TOTAL: ₹${total.toFixed(0)}*\nPaid: ₹${paid.toFixed(0)}\n— ShopHisaab`;
+  $('print-area').innerHTML=`<h2>Bill #${sid}</h2><p>${esc(custName)} · ${new Date().toLocaleString('en-IN')}</p><hr>
+    <ul>${cart.map(c=>`<li>${esc(c.name)} × ${c.qty} = ₹${(c.qty*c.price).toFixed(2)}</li>`).join('')}</ul>
+    <hr><p><b>TOTAL: ₹${total.toFixed(2)} — Paid: ₹${paid.toFixed(2)}</b></p>`;
+  cart=[];render('sale');
+  modal(`<h3>#${sid} ✅</h3><button class="btn grn" onclick="window.open('https://wa.me/?text=${encodeURIComponent(bill)}','_blank')">📲 ${t('waShare')}</button>
+  <button class="btn gray" style="margin-top:8px" onclick="window.print()">🖨 ${t('print')}</button>
+  <button class="btn" style="margin-top:8px" onclick="closeModal()">OK</button>`);
+}
+async function loadSales(){
+  const s=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(30));
+  $('saleslist').innerHTML=s.length?s.map(x=>`<div class="rowitem">
+    <div><div class="t">#${x.invoice_no||x.id} · ${esc(x.customers?.name||t('walkIn'))}</div>
+    <div class="s">${new Date(x.created_at).toLocaleString('en-IN')} · ${x.payment_mode.toUpperCase()}${+x.due_amount>0?' · ⚠ '+money(x.due_amount):''}</div></div>
+    <div class="pill">${money(x.total)}</div></div>`).join(''):`<p class="muted">${t('noData')}</p>`;
+}
+
+/* ================= KHATA ================= */
+async function rKhata(){
+  const v=$('v-khata');
+  v.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+   <h3>${t('customers')}</h3><button class="btn sm" onclick="editCust()">${t('addCust')}</button></div>
+   <input class="search" placeholder="${t('searchPh')}" oninput="loadCusts(this.value)"><div id="clist"></div>`;
+  loadCusts('');
+}
+window._custs=[];
+async function loadCusts(q){
+  let Q=db.from('customers').select('*').order('balance',{ascending:false});
+  if(q)Q=db.from('customers').select('*').ilike('name','%'+q+'%').order('balance',{ascending:false});
+  window._custs=await one(Q.limit(300));
+  $('clist').innerHTML=window._custs.length?window._custs.map((c,i)=>`
+   <div class="rowitem" onclick="openKhata(${i})"><div><div class="t">${esc(c.name)}</div>
+   <div class="s">${esc(c.phone||'')}</div></div>
+   <div class="pill ${+c.balance>0?'red':'grn'}">${money(c.balance)}</div></div>`).join('')
+  :`<p class="muted">${t('noData')}</p>`;
+}
+function editCust(i){
+  const c=i!=null?window._custs[i]:{};
+  modal(`<h3>${i!=null?t('khataOf'):t('addCust')}</h3>
+  <div class="field"><label>Name</label><input id="cf-name" value="${esc(c.name||'')}"></div>
+  <div class="grid2"><div class="field"><label>Phone</label><input id="cf-ph" value="${esc(c.phone||'')}"></div>
+  <div class="field"><label>${t('balance')}</label><input id="cf-bal" type="number" value="${c.balance??0}"></div></div>
+  <div class="field"><label>Address / GSTIN</label><input id="cf-ad" value="${esc(c.address||'')}"></div>
+  <button class="btn grn" onclick="saveCust(${c.id??null})">${t('save')}</button>
+  <button class="btn gray" style="margin-top:8px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+async function saveCust(id){
+  const rec={name:$('cf-name').value.trim(),phone:$('cf-ph').value.trim()||null,
+    address:$('cf-ad').value.trim()||null};
+  if(id){if(meProfile.role==='owner')rec.balance=+($('cf-bal').value||0);}
+  else rec.balance=+($('cf-bal').value||0);
+  if(!rec.name)return toast('Name?');
+  await one(id?db.from('customers').update(rec).eq('id',id):db.from('customers').insert(rec));
+  closeModal();toast(t('saved'));loadCusts('');
+}
+async function openKhata(i){
+  const c=window._custs[i];
+  const[sales,pays]=await Promise.all([
+    one(db.from('sales').select('*').eq('customer_id',c.id).order('created_at',{ascending:false}).limit(50)),
+    one(db.from('payments').select('*').eq('customer_id',c.id).order('created_at',{ascending:false}).limit(50))
+  ]);
+  const rows=[...sales.map(s=>({d:s.created_at,txt:`Bill #${s.invoice_no||s.id} (${s.payment_mode})`,amt:-(-s.total+ +s.due_amount)+ +s.due_amount-s.total+ +s.total- +s.due_amount,dr:+s.due_amount?+s.due_amount:0,cr:0,type:'S'})),
+  ];
+  // simpler ledger: credit portion of bills as Dr, payments as Cr
+  const led=[
+    ...sales.filter(s=>+s.due_amount>0).map(s=>({d:s.created_at,txt:`Udhaar bill #${s.invoice_no||s.id}`,dr:+s.due_amount,cr:0})),
+    ...pays.map(p=>({d:p.created_at,txt:`${t('recvPay')} (${p.mode})`,dr:0,cr:+p.amount}))
+  ].sort((a,b)=>new Date(b.d)-new Date(a.d));
+  modal(`<h3>${t('khataOf')}: ${esc(c.name)} — <span style="color:${+c.balance>0?'#dc3545':'#12855c'}">${money(c.balance)}</span></h3>
+  <div style="max-height:38vh;overflow:auto;margin-bottom:12px">${led.length?led.map(l=>`<div class="rowitem" style="box-shadow:none;border:1px solid #eef2f8">
+   <div><div class="t" style="font-size:13px">${esc(l.txt)}</div><div class="s">${new Date(l.d).toLocaleDateString('en-IN')}</div></div>
+   <div class="pill ${l.dr?'red':'grn'}">${l.dr?'+':'-'}${money(l.dr||l.cr)}</div></div>`).join(''):`<p class="muted">${t('noData')}</p>`}</div>
+  <div class="grid2">
+   <button class="btn grn" onclick="payModal(${c.id},${i})">💵 ${t('recvPay')}</button>
+   <button class="btn" onclick="waRemind(${i})">📲 Reminder</button>
+  </div>
+  ${meProfile.role==='owner'?`<button class="btn gray" style="margin-top:8px" onclick="editCust(${i});">✏️ Edit</button>`:''}`);
+}
+function payModal(cid,i){
+  modal(`<h3>${t('recvPay')}</h3>
+  <div class="field"><label>${t('amount')}</label><input id="py-amt" type="number" autofocus></div>
+  <div class="field"><label>${t('mode')}</label><select id="py-mode"><option value="cash">${t('cash')}</option><option value="upi">${t('upi')}</option></select></div>
+  <div class="field"><label>${t('note')}</label><input id="py-note"></div>
+  <button class="btn grn" onclick="savePay(${cid},${i})">${t('save')}</button>
+  <button class="btn gray" style="margin-top:8px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+async function savePay(cid,i){
+  const amt=+($('py-amt').value||0);if(!amt)return toast('Amount?');
+  await one(db.rpc('receive_payment',{p_customer_id:cid,p_amount:amt,p_mode:$('py-mode').value,p_note:$('py-note').value||null}));
+  closeModal();toast(t('saved'));loadCusts('');
+}
+function waRemind(i){
+  const c=window._custs[i];
+  const msg=`Namaste ${c.name} 🙏 Aapka ${money(c.balance)} baaki hai. Payment kar dijiye. Dhanyavaad!`;
+  const ph=(c.phone||'').replace(/[^0-9]/g,'');
+  window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`,'_blank');
+}
+
+/* ================= MORE ================= */
+function rMore(){
+  const v=$('v-more');
+  v.innerHTML=`<div class="rowitem"><div><div class="t">${esc(meProfile.name||meProfile.email)}</div>
+   <div class="s">${esc(meProfile.email)} · ${meProfile.role}</div></div><div class="pill">👤</div></div>
+  <div class="secH">${t('purchases')}</div>
+  <button class="btn" onclick="purchaseModal()">${t('newPurchase')}</button>
+  <div class="secH">${t('auditLog')}</div>
+  <button class="btn gray" onclick="showAudit()" ${meProfile.role==='owner'?'':'disabled style=opacity:.5'}>🕵 ${t('whoChanged')}</button>
+  <div class="secH">${t('settings')}</div>
+  <div class="grid2">
+    <button class="btn gray" onclick="exportCsv('products')">📦 ${t('exportCsv')}</button>
+    <button class="btn gray" onclick="exportCsv('customers')">📒 ${t('exportCsv')}</button>
+    <button class="btn gray" onclick="exportCsv('sales')">🧾 ${t('exportCsv')}</button>
+    <button class="btn gray" onclick="exportCsv('payments')">💵 ${t('exportCsv')}</button>
+  </div>
+  <p class="muted" style="margin-top:14px;line-height:1.6">💾 Backup weekly • 🔒 Audit tamper-proof<br>100% lifetime-free stack: GitHub Pages + Supabase Free</p>`;
+}
+/* -------- purchases -------- */
+function purchaseModal(){
+  modal(`<h3>${t('newPurchase')}</h3>
+  <div class="field"><label>${t('supplier')}</label><input id="pu-sup" placeholder="Supplier name"></div>
+  <div id="pu-items"></div>
+  <button class="btn gray" onclick="puRow()">＋ ${t('addItem')}</button>
+  <button class="btn grn" style="margin-top:12px" onclick="savePur()">${t('save')}</button>
+  <script-window></script-window>`);
+  window._pur=[];puRow();
+}
+async function puRow(){
+  const prods=await one(db.from('products').select('id,name').order('name'));
+  window._pprods=prods;
+  window._pur.push({});
+  drawPu(prods);
+}
+function drawPu(prods){
+  $('pu-items').innerHTML=window._pur.map((r,i)=>`<div class="saleitem" style="grid-template-columns:1fr 70px 80px 30px">
+   <select onchange="window._pur[${i}].pid=+this.value">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+   <input type="number" placeholder="${t('qty')}" oninput="window._pur[${i}].qty=+this.value">
+   <input type="number" placeholder="${t('price')}" oninput="window._pur[${i}].price=+this.value">
+   <button class="btn red sm" onclick="window._pur.splice(${i},1);drawPu(window._pprods)">×</button></div>`).join('');
+}
+async function savePur(){
+  const items=window._pur.filter(r=>r.pid&&r.qty).map(r=>({product_id:r.pid,qty:r.qty,unit_cost:r.price||0}));
+  if(!items.length)return toast('Items?');
+  await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:0}));
+  closeModal();toast(t('saved')+' — stock updated');
+}
+/* -------- audit -------- */
+async function showAudit(){
+  const rows=await one(db.from('audit_log').select('*').order('id',{ascending:false}).limit(100));
+  modal(`<h3>🕵 ${t('auditLog')} (last ${rows.length})</h3>
+  <div style="max-height:60vh;overflow:auto"><table class="audit"><tr><th>Who</th><th>What</th><th>When</th></tr>
+  ${rows.map(r=>`<tr onclick="auditDetail(this)" data-old='${esc(JSON.stringify(r.old_row))}' data-new='${esc(JSON.stringify(r.new_row))}'>
+   <td>${esc(r.actor_name||'?')}</td>
+   <td><span class="tag ${(r.action||'I')[0]}">${r.action}</span> ${esc(r.table_name)} #${r.row_id??''}</td>
+   <td>${new Date(r.acted_at).toLocaleString('en-IN')}</td></tr>`).join('')}</table></div>
+  <p class="muted" style="margin-top:6px">Tap a row to see old → new values.</p>
+  <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+function auditDetail(tr){
+  const o=JSON.parse(tr.dataset.old||'{}'),n=JSON.parse(tr.dataset.new||'{}');
+  const keys=[...new Set([...Object.keys(o||{}),...Object.keys(n||{})])].filter(k=>!['updated_at'].includes(k));
+  const diffs=keys.filter(k=>JSON.stringify(o?.[k])!==JSON.stringify(n?.[k]))
+    .map(k=>`<tr><td>${k}</td><td>${esc(JSON.stringify(o?.[k]))}</td><td>${esc(JSON.stringify(n?.[k]))}</td></tr>`).join('');
+  alert(`${t('whoChanged')}:\n\n`+(diffs?diffs.replace(/<\/?td>|<\/?tr>/g,' | '):'(insert/delete)'));
+}
+/* -------- csv -------- */
+async function exportCsv(tbl){
+  let all=[],from=0;
+  while(true){
+    const page=await one(db.from(tbl).select('*').range(from,from+999));
+    all=all.concat(page);if(page.length<1000)break;from+=1000;
+    if(from>=5000)break;
+  }
+  if(!all.length)return toast(t('noData'));
+  const cols=Object.keys(all[0]);
+  const csv=[cols.join(',')].concat(all.map(r=>cols.map(c=>'"'+String(r[c]??'').replaceAll('"','""')+'"').join(','))).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=tbl+'-'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+}
+
+/* ================= INIT ================= */
+if(CONFIGURED){db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();}
+else{applyI18n();}
+if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));}
+</script>
+</body>
+</html>
