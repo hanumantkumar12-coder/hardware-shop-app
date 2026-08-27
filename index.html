@@ -282,7 +282,6 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
   </div>
   <div id="toast" class="toast"></div>
   <div id="print-area"></div>
-  <div id="fab" onclick="showQuickActions()" style="position:fixed;bottom:80px;right:20px;width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#1a8917,#146b12);color:#fff;border:none;font-size:24px;box-shadow:0 6px 20px rgba(26,137,23,.45);cursor:pointer;z-index:500;display:flex;align-items:center;justify-content:center;transition:transform .2s" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">⚡</div>
 
 <script>
 /* ================= CONFIG GUARD ================= */
@@ -892,8 +891,8 @@ async function showCustDetail(cid){
   const totalBilled=sales.reduce((a,s)=>a+ +s.total,0);
   const totalPaid=sales.reduce((a,s)=>a+ +(s.paid_amount||0),0)+pays.reduce((a,p)=>a+ +p.amount,0);
   const txns=[
-    ...sales.map(s=>({d:s.created_at,type:'sale',txt:`Bill #${s.invoice_no||s.id}`,debit:+s.total,credit:+(s.paid_amount||0),mode:s.payment_mode,balance:0})),
-    ...pays.map(p=>({d:p.created_at,type:'payment',txt:`Payment (${p.mode})`,debit:0,credit:+p.amount,mode:p.mode,balance:0}))
+    ...sales.map(s=>({d:s.created_at,id:s.id,type:'sale',txt:`Bill #${s.invoice_no||s.id}`,debit:+s.total,credit:+(s.paid_amount||0),mode:s.payment_mode,balance:0})),
+    ...pays.map(p=>({d:p.created_at,id:null,type:'payment',txt:`Payment (${p.mode})`,debit:0,credit:+p.amount,mode:p.mode,balance:0}))
   ].sort((a,b)=>new Date(a.d)-new Date(b.d));
   let runningBal=0;
   txns.forEach(t=>{runningBal+=t.debit-t.credit;t.balance=runningBal;});
@@ -1055,25 +1054,6 @@ async function showBill(saleId){
     </div>
   </div>
   </div>`);
-}
-/* ===== FLOATING QUICK ACTIONS ===== */
-function showQuickActions(){
-  modal(`<h3>⚡ Quick Actions</h3>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0">
-    <div class="menu-item" onclick="closeModal();showPage('sale')" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#f0fdf4,#bbf7d0);border:2px solid #16a34a">
-      <div style="font-size:32px;margin-bottom:8px">🧾</div><div style="font-weight:800;color:#16a34a">New Sale</div>
-    </div>
-    <div class="menu-item" onclick="closeModal();showBillSearch()" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#eff6ff,#bfdbfe);border:2px solid #2563eb">
-      <div style="font-size:32px;margin-bottom:8px">🔍</div><div style="font-weight:800;color:#2563eb">Find Bill</div>
-    </div>
-    <div class="menu-item" onclick="closeModal();showPage('purchase')" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#fefce8,#fde68a);border:2px solid #ca8a04">
-      <div style="font-size:32px;margin-bottom:8px">📦</div><div style="font-weight:800;color:#ca8a04">New Purchase</div>
-    </div>
-    <div class="menu-item" onclick="closeModal();showOutstanding()" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#fef2f2,#fecaca);border:2px solid #dc2626">
-      <div style="font-size:32px;margin-bottom:8px">📋</div><div style="font-weight:800;color:#dc2626">Outstanding</div>
-    </div>
-  </div>
-  <button class="btn gray" style="margin-top:8px" onclick="closeModal()">${t('cancel')}</button>`);
 }
 /* ===== BILL SEARCH ===== */
 async function showBillSearch(){
