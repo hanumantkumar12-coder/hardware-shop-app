@@ -444,16 +444,18 @@ function rMore(){
    <div class="s">${esc(meProfile.email)} · ${meProfile.role}</div></div><div class="pill">👤</div></div>
   <div class="secH">${t('purchases')}</div>
   <button class="btn" onclick="purchaseModal()">${t('newPurchase')}</button>
-  <div class="secH">${t('auditLog')}</div>
-  <button class="btn gray" onclick="showAudit()" ${meProfile.role==='owner'?'':'disabled style=opacity:.5'}>🕵 ${t('whoChanged')}</button>
-  <div class="secH">${t('settings')}</div>
-  <div class="grid2">
-    <button class="btn gray" onclick="exportCsv('products')">📦 ${t('exportCsv')}</button>
-    <button class="btn gray" onclick="exportCsv('customers')">📒 ${t('exportCsv')}</button>
-    <button class="btn gray" onclick="exportCsv('sales')">🧾 ${t('exportCsv')}</button>
-    <button class="btn gray" onclick="exportCsv('payments')">💵 ${t('exportCsv')}</button>
-  </div>
-  <p class="muted" style="margin-top:14px;line-height:1.6">💾 Backup weekly • 🔒 Audit tamper-proof<br>100% lifetime-free stack: GitHub Pages + Supabase Free</p>`;
+<div class="secH">${t('auditLog')}</div>
+   <button class="btn gray" onclick="showAudit()" ${meProfile.role==='owner'?'':'disabled style=opacity:.5'}>🕵 ${t('whoChanged')}</button>
+   <div class="secH">Reports</div>
+   <div class="grid2">
+     <button class="btn" onclick="showDayBook()">📅 Day Book</button>
+     <button class="btn" onclick="showOutstanding()">📋 Outstanding</button>
+     <button class="btn gray" onclick="exportCsv('products')">📦 ${t('exportCsv')}</button>
+     <button class="btn gray" onclick="exportCsv('customers')">📒 ${t('exportCsv')}</button>
+     <button class="btn gray" onclick="exportCsv('sales')">🧾 ${t('exportCsv')}</button>
+     <button class="btn gray" onclick="exportCsv('payments')">💵 ${t('exportCsv')}</button>
+   </div>
+   <p class="muted" style="margin-top:14px;line-height:1.6">💾 Backup weekly • 🔒 Audit tamper-proof<br>100% lifetime-free stack: GitHub Pages + Supabase Free</p>`;
 }
 /* -------- purchases -------- */
 function purchaseModal(){
