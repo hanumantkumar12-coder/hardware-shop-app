@@ -971,9 +971,9 @@ function downloadPDF(invoiceNo){
 async function showPurchaseBill(pid){
   const p=await one(db.from('purchases').select('*').eq('id',pid).single());
   if(!p)return toast('Purchase not found');
-  const items=await one(db.from('purchase_items').select('*').eq('purchase_id',pid));
+  const items=await one(db.from('purchase_items').select('*, products(name)').eq('purchase_id',pid));
   const now=new Date(p.created_at);
-  const itemsHtml=(items||[]).map((c,i)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${i+1}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${esc(c.product_name||c.name||'')}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:center;font-size:12px">${c.quantity||c.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:12px">₹${+(c.cost_price||c.price||0).toFixed(2)}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;font-size:12px">₹${((c.quantity||c.qty)*(c.cost_price||c.price||0)).toFixed(2)}</td></tr>`).join('');
+  const itemsHtml=(items||[]).map((c,i)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${i+1}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${esc(c.products?.name||'Item')}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:center;font-size:12px">${c.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:12px">₹${+(c.unit_cost||0).toFixed(2)}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;font-size:12px">₹${((c.qty)*(c.unit_cost||0)).toFixed(2)}</td></tr>`).join('');
   modal(`<div id="bill-modal" style="position:relative">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <h3 style="margin:0">📦 Purchase #${p.id}</h3>
@@ -1013,13 +1013,13 @@ function downloadPurchasePDF(pid){
 async function showBill(saleId){
   const sale=await one(db.from('sales').select('*,customers(name,phone,address)').eq('id',saleId).single());
   if(!sale)return toast('Sale not found');
-  const items=await one(db.from('sale_items').select('*').eq('sale_id',saleId));
+  const items=await one(db.from('sale_items').select('*, products(name)').eq('sale_id',saleId));
   const cust=sale.customers||{};const sid=sale.invoice_no||sale.id;
   const total=+sale.total;const paid=+(sale.paid_amount||0);const due=+sale.due_amount||0;
   const cash=+(sale.cash_amount||0);const upi=+(sale.upi_amount||0);
   const paySplit=cash>0&&upi>0?`Cash: ₹${cash} + UPI: ₹${upi}`:cash>0?`Cash: ₹${cash}`:upi>0?`UPI: ₹${upi}`:(sale.payment_mode||'Credit');
-  const itemsHtml=(items||[]).map((c,i)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${i+1}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${esc(c.name||c.product_name||'')}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:center;font-size:12px">${c.quantity||c.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:12px">₹${+(c.price||0).toFixed(2)}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;font-size:12px">₹${((c.quantity||c.qty)*(c.price||0)).toFixed(2)}</td></tr>`).join('');
-  const billText=`🧾 *Bill #${sid}*\n${esc(cust.name||'Walk-in')}\n${(items||[]).map(c=>`${esc(c.name||c.product_name)} × ${c.quantity||c.qty} = ₹${((c.quantity||c.qty)*(c.price||0)).toFixed(0)}`).join('\n')}\n*TOTAL: ₹${total.toFixed(0)}*\nPaid: ${paySplit}${due>0?`\nCredit: ₹${due.toFixed(0)}`:''}\n— HK Shop Hisaab`;
+  const itemsHtml=(items||[]).map((c,i)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${i+1}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${esc(c.products?.name||'Item')}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:center;font-size:12px">${c.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:12px">₹${+(c.unit_price||0).toFixed(2)}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;font-size:12px">₹${((c.qty)*(c.unit_price||0)).toFixed(2)}</td></tr>`).join('');
+  const billText=`🧾 *Bill #${sid}*\n${esc(cust.name||'Walk-in')}\n${(items||[]).map(c=>`${esc(c.products?.name||'Item')} × ${c.qty} = ₹${((c.qty)*(c.unit_price||0)).toFixed(0)}`).join('\n')}\n*TOTAL: ₹${total.toFixed(0)}*\nPaid: ${paySplit}${due>0?`\nCredit: ₹${due.toFixed(0)}`:''}\n— HK Shop Hisaab`;
   const now=new Date(sale.created_at);
   modal(`<div id="bill-modal" style="position:relative">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
