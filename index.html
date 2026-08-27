@@ -526,7 +526,7 @@ async function saveSale(){
   const paid=cash+upi;
   const mode=cash>0&&upi>0?'mixed':cash>0?'cash':upi>0?'upi':'credit';
   const items=cart.map(c=>({product_id:c.id,qty:c.qty,unit_price:c.price}));
-  const sid=await one(db.rpc('create_sale',{p_customer_id:saleCust?+saleCust:null,p_items:JSON.stringify(items),p_paid:paid,p_mode:mode}));
+  const sid=await one(db.rpc('create_sale',{p_customer_id:saleCust?+saleCust:null,p_items:items,p_paid:paid,p_mode:mode}));
   closeModal&&0;toast(t('saved')+' #'+sid);
   const custName=saleCust?$('sl-cust').selectedOptions[0].textContent:t('walkIn');
   const billLines=cart.map(c=>`${c.name} ×${c.qty} = ₹${(c.qty*c.price).toFixed(0)}`).join('\n');
@@ -716,7 +716,7 @@ async function savePur(){
   if(!items.length)return toast('Add items with qty!');
   const paid=+($('pu-paid')?.value||0);
   const mode=$('pu-mode')?.value||'cash';
-  await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:JSON.stringify(items),p_paid:paid}));
+  await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:paid}));
   closeModal();toast(t('saved')+' — stock updated');render('more');
 }
 /* -------- Day Book -------- */
