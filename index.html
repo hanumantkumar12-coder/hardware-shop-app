@@ -279,9 +279,10 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 
 <div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
   <div class="modal-sheet" id="modalSheet"><div class="modal-handle"></div><div id="modalContent"></div></div>
-</div>
-<div class="toast" id="toast"></div>
-<div id="print-area"></div>
+  </div>
+  <div id="toast" class="toast"></div>
+  <div id="print-area"></div>
+  <div id="fab" onclick="showQuickActions()" style="position:fixed;bottom:80px;right:20px;width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#1a8917,#146b12);color:#fff;border:none;font-size:24px;box-shadow:0 6px 20px rgba(26,137,23,.45);cursor:pointer;z-index:500;display:flex;align-items:center;justify-content:center;transition:transform .2s" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">⚡</div>
 
 <script>
 /* ================= CONFIG GUARD ================= */
@@ -399,10 +400,11 @@ async function rHome(){
   const v=$('v-home');v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
   const today=new Date().toISOString().slice(0,10);
   const month=new Date().toISOString().slice(0,7);
-  const[sales,prods,custs]=await Promise.all([
+  const[sales,prods,custs,recentSales]=await Promise.all([
     one(db.from('sales').select('total,due_amount,created_at')),
     one(db.from('products').select('name,current_stock,reorder_level').order('current_stock')),
-    one(db.from('customers').select('balance'))
+    one(db.from('customers').select('balance')),
+    one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5))
   ]);
   const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
   const mSales=sales.filter(s=>s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
@@ -413,14 +415,19 @@ async function rHome(){
   v.innerHTML=`
     <div class="dash-greeting">Hello, <b>${esc(userName)}</b> 👋</div>
     <div class="stat-grid">
-      <div class="stat-card green"><div class="stat-icon">💰</div><div class="stat-label">${t('todaySale')}</div><div class="stat-value">${money(tSales)}</div></div>
-      <div class="stat-card blue"><div class="stat-icon">📊</div><div class="stat-label">${t('monthSale')}</div><div class="stat-value">${money(mSales)}</div></div>
-      <div class="stat-card orange"><div class="stat-icon">📒</div><div class="stat-label">${t('totalUdhaar')}</div><div class="stat-value">${money(udhaar)}</div></div>
-      <div class="stat-card ${low.length?'red':'green'}"><div class="stat-icon">${low.length?'⚠️':'✅'}</div><div class="stat-label">${t('lowStock')}</div><div class="stat-value">${low.length}</div></div>
+      <div class="stat-card green" onclick="showDayBook()" style="cursor:pointer"><div class="stat-icon">💰</div><div class="stat-label">${t('todaySale')}</div><div class="stat-value">${money(tSales)}</div></div>
+      <div class="stat-card blue" onclick="showDayHistory()" style="cursor:pointer"><div class="stat-icon">📊</div><div class="stat-label">${t('monthSale')}</div><div class="stat-value">${money(mSales)}</div></div>
+      <div class="stat-card orange" onclick="showOutstanding()" style="cursor:pointer"><div class="stat-icon">📒</div><div class="stat-label">${t('totalUdhaar')}</div><div class="stat-value">${money(udhaar)}</div></div>
+      <div class="stat-card ${low.length?'red':'green'}" onclick="showPage('stock')" style="cursor:pointer"><div class="stat-icon">${low.length?'⚠️':'✅'}</div><div class="stat-label">${t('lowStock')}</div><div class="stat-value">${low.length}</div></div>
     </div>
     ${low.length?`<div class="section-header"><span class="section-title">⚠️ ${t('lowStock')}</span></div>`+low.slice(0,5).map(p=>
       `<div class="low-stock-item"><div style="display:flex;align-items:center;gap:10px"><span class="warn-icon">⚠️</span><div><div style="font-weight:700;font-size:14px">${esc(p.name)}</div><div style="font-size:12px;color:var(--text2)">Only ${p.current_stock} left</div></div></div><div style="font-weight:800;color:var(--red);font-size:15px">${p.current_stock}</div></div>`).join('')
-    :''}`;
+    :''}
+    ${recentSales.length?`<div class="section-header"><span class="section-title">🧾 Recent Sales</span><span class="section-action" onclick="showDayBook()">View All →</span></div>
+    ${recentSales.map(s=>`<div class="list-item" onclick="showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
+      <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(s.customers?.name||'W')}</div>
+      <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode}</div></div></div>
+      <div class="list-item-right"><div class="list-item-amount" style="font-size:14px;font-weight:800">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅ Paid'}</div></div></div>`).join('')}`:''}`;
 }
 
 /* ================= STOCK ================= */
@@ -598,7 +605,7 @@ async function saveSale(){
 }
 async function loadSales(){
   const s=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(30));
-  $('saleslist').innerHTML=s.length?s.map(x=>`<div class="list-item">
+  $('saleslist').innerHTML=s.length?s.map(x=>`<div class="list-item" onclick="showBill(${x.id})" style="cursor:pointer">
     <div class="list-item-left">
       <div class="avatar ${avatarColor(x.customers?.name||'W')}">${avatarInitial(x.customers?.name||'W')}</div>
       <div class="list-item-info"><div class="list-item-name">#${x.invoice_no||x.id} · ${esc(x.customers?.name||t('walkIn'))}</div>
@@ -658,13 +665,14 @@ async function openKhata(i){
     one(db.from('payments').select('*').eq('customer_id',c.id).order('created_at',{ascending:false}).limit(50))
   ]);
   const led=[
-    ...sales.map(s=>({d:s.created_at,txt:`Bill #${s.invoice_no||s.id} (${s.payment_mode})`,dr:+s.total,cr:+s.paid_amount||0})),
-    ...pays.map(p=>({d:p.created_at,txt:`${t('recvPay')} (${p.mode})`,dr:0,cr:+p.amount}))
+    ...sales.map(s=>({d:s.created_at,sid:s.id,txt:`Bill #${s.invoice_no||s.id} (${s.payment_mode})`,dr:+s.total,cr:+s.paid_amount||0})),
+    ...pays.map(p=>({d:p.created_at,sid:null,txt:`${t('recvPay')} (${p.mode})`,dr:0,cr:+p.amount}))
   ].sort((a,b)=>new Date(b.d)-new Date(a.d));
   modal(`<h3 style="display:flex;align-items:center;gap:10px"><div class="avatar ${avatarColor(c.name)}" style="width:40px;height:40px;font-size:16px;border-radius:12px">${avatarInitial(c.name)}</div> <div>${esc(c.name)}<div style="font-size:14px;color:${+c.balance>0?'var(--red)':'var(--green)'};font-weight:800">${money(c.balance)}</div></div></h3>
   <div style="max-height:38vh;overflow:auto;margin:12px 0">${led.length?led.map(l=>{
     const net=l.dr-l.cr;
-    return `<div class="list-item" style="margin-bottom:8px">
+    const clickFn=l.sid?`onclick="closeModal();showBill(${l.sid})"`:'';
+    return `<div class="list-item" ${clickFn} style="margin-bottom:8px;${l.sid?'cursor:pointer':''}">
     <div class="list-item-left"><div style="width:8px;height:8px;border-radius:50%;background:${net>0?'var(--red)':'var(--green)'};flex-shrink:0"></div>
     <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(l.txt)}</div><div class="list-item-sub">${new Date(l.d).toLocaleDateString('en-IN')} ${new Date(l.d).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount ${net>0?'red':'green'}">${net>0?'+':'−'}${money(Math.abs(net))}</div></div></div>`;}).join(''):`<div class="empty-state" style="padding:20px"><p>${t('noData')}</p></div>`}</div>
@@ -717,6 +725,7 @@ function rMore(){
   <div class="menu-group">
     <div class="menu-item" onclick="showDayBook()"><div class="menu-icon green">📅</div><div class="menu-text">Day Book (Today)</div><div class="menu-arrow">›</div></div>
     <div class="menu-item" onclick="showDayHistory()"><div class="menu-icon blue">📆</div><div class="menu-text">Daily Transaction History</div><div class="menu-arrow">›</div></div>
+    <div class="menu-item" onclick="showBillSearch()"><div class="menu-icon orange">🔍</div><div class="menu-text">Find Bill</div><div class="menu-arrow">›</div></div>
     <div class="menu-item" onclick="showOutstanding()"><div class="menu-icon red">📋</div><div class="menu-text">Outstanding (Udhaar)</div><div class="menu-arrow">›</div></div>
     <div class="menu-item" onclick="showCustHistory()"><div class="menu-icon orange">👤</div><div class="menu-text">Customer Transaction History</div><div class="menu-arrow">›</div></div>
   </div>
@@ -793,12 +802,12 @@ async function showDayBook(){
     <div class="stat-card red" style="padding:12px"><div class="stat-label">Credit Given</div><div class="stat-value" style="font-size:18px">${money(creditSales)}</div></div>
   </div>
   <div class="menu-label">Sales (${sales.length})</div>
-  <div style="max-height:30vh;overflow:auto">${sales.length?sales.map(s=>`<div class="list-item" style="margin-bottom:6px">
+  <div style="max-height:30vh;overflow:auto">${sales.length?sales.map(s=>`<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(s.customers?.name||'W')}</div>
     <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleTimeString('en-IN')} · ${s.payment_mode.toUpperCase()}</div></div></div>
-    <div class="list-item-right"><div class="list-item-amount" style="font-size:14px">${money(s.total)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:16px"><p>No sales today</p></div>'}</div>
+    <div class="list-item-right"><div class="list-item-amount" style="font-size:14px">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅'}</div></div></div>`).join(''):'<div class="empty-state" style="padding:16px"><p>No sales today</p></div>'}</div>
   <div class="menu-label">Payments (${pays.length})</div>
-  <div style="max-height:25vh;overflow:auto">${pays.length?pays.map(p=>`<div class="list-item" style="margin-bottom:6px">
+  <div style="max-height:25vh;overflow:auto">${pays.length?pays.map(p=>`<div class="list-item" onclick="closeModal();showCustDetail(${p.customer_id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar green" style="width:36px;height:36px;font-size:13px;border-radius:10px">💰</div>
     <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(p.customers?.name||'?')} · ${p.mode==='mixed'?'Cash+UPI':p.mode.toUpperCase()}</div><div class="list-item-sub">${new Date(p.created_at).toLocaleTimeString('en-IN')}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount green" style="font-size:14px">+${money(p.amount)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:16px"><p>No payments today</p></div>'}</div>
@@ -810,7 +819,7 @@ async function showOutstanding(){
   const totalDue=custs.reduce((a,b)=>a+ +b.balance,0);
   modal(`<h3>📋 Outstanding (Udhaar)</h3>
   <div class="stat-card red" style="margin:12px 0"><div class="stat-label">Total Outstanding</div><div class="stat-value">${money(totalDue)}</div></div>
-  <div style="max-height:55vh;overflow:auto">${custs.length?custs.map(c=>`<div class="list-item" style="margin-bottom:8px">
+  <div style="max-height:55vh;overflow:auto">${custs.length?custs.map(c=>`<div class="list-item" onclick="closeModal();showCustDetail(${c.id})" style="margin-bottom:8px;cursor:pointer">
     <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}">${avatarInitial(c.name)}</div>
     <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount red">${money(c.balance)}</div></div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">✅</div><p>No outstanding!</p></div>'}</div>
@@ -845,8 +854,8 @@ async function showDayHistory(){
         <div style="text-align:center"><div style="font-size:10px;color:#6b7280">Purchases</div><div style="font-weight:800;color:#e53935">${money(purTotal)}</div></div>
         <div style="text-align:center"><div style="font-size:10px;color:#6b7280">Credit Given</div><div style="font-weight:800;color:#ff6d00">${money(creditGiven)}</div></div>
       </div>
-      ${day.sales.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:6px 0 4px">SALES</div>`+day.sales.map(s=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #e5e7eb"><span>#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')} · ${s.payment_mode}</span><span style="font-weight:700">${money(s.total)}${+s.due_amount>0?' <span style="color:#e53935">⚠'+money(s.due_amount)+'</span>':''}</span></div>`).join(''):''}
-      ${day.pays.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:8px 0 4px">PAYMENTS RECEIVED</div>`+day.pays.map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #e5e7eb"><span>${esc(p.customers?.name||'?')} · ${p.mode}</span><span style="font-weight:700;color:#1a8917">+${money(p.amount)}</span></div>`).join(''):''}
+      ${day.sales.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:6px 0 4px">SALES</div>`+day.sales.map(s=>`<div onclick="closeModal();showBill(${s.id})" style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #e5e7eb;cursor:pointer" onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background=''"><span>#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')} · ${s.payment_mode}</span><span style="font-weight:700">${money(s.total)}${+s.due_amount>0?' <span style="color:#e53935">⚠'+money(s.due_amount)+'</span>':''}</span></div>`).join(''):''}
+      ${day.pays.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:8px 0 4px">PAYMENTS RECEIVED</div>`+day.pays.map(p=>`<div onclick="closeModal();showCustDetail(${p.customer_id})" style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #e5e7eb;cursor:pointer" onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background=''"><span>${esc(p.customers?.name||'?')} · ${p.mode}</span><span style="font-weight:700;color:#1a8917">+${money(p.amount)}</span></div>`).join(''):''}
       ${day.purs.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:8px 0 4px">PURCHASES</div>`+day.purs.map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #e5e7eb"><span>${esc(p.supplier_name||'?')}</span><span style="font-weight:700;color:#e53935">-${money(p.total)}</span></div>`).join(''):''}
     </div></div>`;}).join(''):'<div class="empty-state"><div class="empty-icon">📆</div><p>No transactions yet</p></div>'}</div>
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
@@ -886,7 +895,8 @@ async function showCustDetail(cid){
   <div class="menu-label">All Transactions (${txns.length})</div>
   <div style="max-height:45vh;overflow:auto">${txns.length?txns.map(tx=>{
     const isCredit=tx.type==='payment';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13px">
+    const clickFn=tx.type==='sale'?`closeModal();showBill(${tx.id})`:`closeModal();showCustDetail(${cid})`;
+    return `<div onclick="${clickFn}" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13px;cursor:pointer" onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background=''">
       <div><div style="font-weight:600">${tx.txt}</div><div style="font-size:11px;color:#6b7280">${new Date(tx.d).toLocaleDateString('en-IN')} ${new Date(tx.d).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div></div>
       <div style="text-align:right"><div style="font-weight:700;color:${isCredit?'#1a8917':'#e53935'}">${isCredit?'-':'+'}${money(isCredit?tx.credit:tx.debit)}</div><div style="font-size:11px;color:#6b7280">Bal: ${money(tx.balance)}</div></div>
     </div>`;}).join(''):'<div class="empty-state"><p>No transactions</p></div>'}</div>
@@ -945,6 +955,91 @@ function downloadPDF(invoiceNo){
   toast('Generating PDF...');
   const opt={margin:[0,0,0,0],filename:`HK-Shop-Invoice-${invoiceNo}.pdf`,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,letterRendering:true,logging:false},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}};
   html2pdf().set(opt).from(inv).save().then(()=>{pa.style.display='none';toast('PDF saved!');}).catch(()=>{pa.style.display='none';toast('PDF failed');});
+}
+/* ===== UNIVERSAL BILL VIEWER ===== */
+async function showBill(saleId){
+  const sale=await one(db.from('sales').select('*,customers(name,phone,address)').eq('id',saleId).single());
+  if(!sale)return toast('Sale not found');
+  const items=await one(db.from('sale_items').select('*').eq('sale_id',saleId));
+  const cust=sale.customers||{};const sid=sale.invoice_no||sale.id;
+  const total=+sale.total;const paid=+(sale.paid_amount||0);const due=+sale.due_amount||0;
+  const cash=+(sale.cash_amount||0);const upi=+(sale.upi_amount||0);
+  const paySplit=cash>0&&upi>0?`Cash: ₹${cash} + UPI: ₹${upi}`:cash>0?`Cash: ₹${cash}`:upi>0?`UPI: ₹${upi}`:(sale.payment_mode||'Credit');
+  const itemsHtml=(items||[]).map((c,i)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${i+1}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${esc(c.name||c.product_name||'')}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:center;font-size:12px">${c.quantity||c.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:12px">₹${+(c.price||0).toFixed(2)}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;font-size:12px">₹${((c.quantity||c.qty)*(c.price||0)).toFixed(2)}</td></tr>`).join('');
+  const billText=`🧾 *Bill #${sid}*\n${esc(cust.name||'Walk-in')}\n${(items||[]).map(c=>`${esc(c.name||c.product_name)} × ${c.quantity||c.qty} = ₹${((c.quantity||c.qty)*(c.price||0)).toFixed(0)}`).join('\n')}\n*TOTAL: ₹${total.toFixed(0)}*\nPaid: ${paySplit}${due>0?`\nCredit: ₹${due.toFixed(0)}`:''}\n— HK Shop Hisaab`;
+  const now=new Date(sale.created_at);
+  modal(`<div id="bill-modal" style="position:relative">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h3 style="margin:0">🧾 Bill #${sid}</h3>
+    <div style="display:flex;gap:6px">
+      <button class="btn green" onclick="window.open('https://wa.me/?text=${encodeURIComponent(billText)}','_blank')" title="Share on WhatsApp">📲</button>
+      <button class="btn blue" onclick="printInvoice()" title="Print">🖨</button>
+      <button class="btn orange" onclick="downloadPDF(${sid})" title="Save PDF">📄</button>
+    </div>
+  </div>
+  <div id="invoice-a4" style="width:210mm;padding:12mm;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;background:#fff;border:1px solid #e5e7eb;border-radius:8px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a8917;padding-bottom:10px;margin-bottom:14px">
+      <div><div style="font-size:24px;font-weight:900;color:#1a8917;letter-spacing:1px">HK SHOP HISAAB</div><div style="font-size:11px;color:#6b7280;margin-top:3px">Hardware & Paint Shop</div></div>
+      <div style="text-align:right"><div style="font-size:26px;font-weight:900;color:#1a8917">INVOICE</div><div style="font-size:12px;color:#6b7280;margin-top:3px"><b>Bill #:</b> ${sid}</div><div style="font-size:12px;color:#6b7280"><b>Date:</b> ${now.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div><div style="font-size:12px;color:#6b7280"><b>Time:</b> ${now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div></div>
+    </div>
+    <div style="display:flex;gap:16px;margin-bottom:14px">
+      <div style="flex:1;background:#f0fdf4;border-radius:10px;padding:10px 12px;border:1px solid #bbf7d0"><div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Bill To</div><div style="font-size:15px;font-weight:800">${esc(cust.name||'Walk-in')}</div>${cust.phone?`<div style="font-size:12px;color:#6b7280;margin-top:2px">📞 ${esc(cust.phone)}</div>`:''}${cust.address?`<div style="font-size:12px;color:#6b7280;margin-top:2px">📍 ${esc(cust.address)}</div>`:''}</div>
+      <div style="flex:1;background:#eff6ff;border-radius:10px;padding:10px 12px;border:1px solid #bfdbfe"><div style="font-size:10px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Payment Info</div><div style="font-size:12px"><b>Mode:</b> ${paySplit}</div><div style="font-size:12px"><b>Paid:</b> <span style="color:#16a34a;font-weight:700">₹${paid.toFixed(2)}</span></div>${due>0?`<div style="font-size:12px"><b>Due:</b> <span style="color:#dc2626;font-weight:700">₹${due.toFixed(2)}</span></div>`:'<div style="font-size:12px;color:#16a34a;font-weight:700;margin-top:4px">✅ FULLY PAID</div>'}</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
+      <thead><tr style="background:#1a8917;color:#fff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700">#</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700">Item</th><th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:700">Qty</th><th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700">Rate</th><th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700">Amount</th></tr></thead>
+      <tbody>${itemsHtml}</tbody>
+      <tfoot><tr style="border-top:2px solid #1a8917"><td colspan="4" style="padding:10px;text-align:right;font-size:13px;font-weight:800">SUBTOTAL</td><td style="padding:10px;text-align:right;font-size:13px;font-weight:800">₹${total.toFixed(2)}</td></tr>
+      ${due>0?`<tr><td colspan="4" style="padding:6px 10px;text-align:right;font-size:12px;color:#16a34a">Paid</td><td style="padding:6px 10px;text-align:right;font-size:12px;color:#16a34a;font-weight:700">₹${paid.toFixed(2)}</td></tr>
+      <tr style="background:#fef2f2"><td colspan="4" style="padding:8px 10px;text-align:right;font-size:14px;font-weight:900;color:#dc2626">TOTAL DUE</td><td style="padding:8px 10px;text-align:right;font-size:16px;font-weight:900;color:#dc2626">₹${due.toFixed(2)}</td></tr>`
+      :`<tr style="background:#f0fdf4"><td colspan="4" style="padding:10px;text-align:right;font-size:14px;font-weight:900;color:#16a34a">TOTAL PAID</td><td style="padding:10px;text-align:right;font-size:16px;font-weight:900;color:#16a34a">₹${total.toFixed(2)}</td></tr>`}</tfoot>
+    </table>
+    <div style="border-top:1px dashed #d1d5db;padding-top:10px;display:flex;justify-content:space-between;align-items:flex-end">
+      <div style="font-size:11px;color:#6b7280">Thank you for your business! 🙏</div>
+      <div style="text-align:right"><div style="font-size:11px;color:#6b7280">Authorized Signature</div><div style="width:120px;border-bottom:2px solid #1a1a2e;margin-top:20px"></div></div>
+    </div>
+  </div>
+  </div>`);
+}
+/* ===== FLOATING QUICK ACTIONS ===== */
+function showQuickActions(){
+  modal(`<h3>⚡ Quick Actions</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0">
+    <div class="menu-item" onclick="closeModal();showPage('sale')" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#f0fdf4,#bbf7d0);border:2px solid #16a34a">
+      <div style="font-size:32px;margin-bottom:8px">🧾</div><div style="font-weight:800;color:#16a34a">New Sale</div>
+    </div>
+    <div class="menu-item" onclick="closeModal();showBillSearch()" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#eff6ff,#bfdbfe);border:2px solid #2563eb">
+      <div style="font-size:32px;margin-bottom:8px">🔍</div><div style="font-weight:800;color:#2563eb">Find Bill</div>
+    </div>
+    <div class="menu-item" onclick="closeModal();showOutstanding()" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#fef2f2,#fecaca);border:2px solid #dc2626">
+      <div style="font-size:32px;margin-bottom:8px">📋</div><div style="font-weight:800;color:#dc2626">Outstanding</div>
+    </div>
+    <div class="menu-item" onclick="closeModal();showDayBook()" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#fefce8,#fde68a);border:2px solid #ca8a04">
+      <div style="font-size:32px;margin-bottom:8px">📅</div><div style="font-weight:800;color:#ca8a04">Day Book</div>
+    </div>
+  </div>
+  <button class="btn gray" style="margin-top:8px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* ===== BILL SEARCH ===== */
+async function showBillSearch(){
+  modal(`<h3>🔍 Find Bill</h3>
+  <div class="field"><label>Search by Invoice # or Customer Name</label><input id="bill-search" placeholder="e.g. 7 or Ramesh" oninput="filterBills()"></div>
+  <div id="bill-results" style="max-height:50vh;overflow:auto;margin-top:8px"><div style="text-align:center;color:#6b7280;padding:20px">Type to search...</div></div>
+  <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+async function filterBills(){
+  const q=($('bill-search')?.value||'').trim().toLowerCase();
+  if(!q){$('bill-results').innerHTML='<div style="text-align:center;color:#6b7280;padding:20px">Type to search...</div>';return;}
+  const sales=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(200));
+  const matches=sales.filter(s=>{
+    const inv=(s.invoice_no||s.id).toString().toLowerCase();
+    const name=(s.customers?.name||'').toLowerCase();
+    return inv.includes(q)||name.includes(q);
+  }).slice(0,20);
+  $('bill-results').innerHTML=matches.length?matches.map(s=>`<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:32px;height:32px;font-size:12px;border-radius:8px">${avatarInitial(s.customers?.name||'W')}</div>
+    <div class="list-item-info"><div class="list-item-name">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(s.total)}</div><div style="font-size:11px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅'}</div></div></div>`).join(''):'<div class="empty-state" style="padding:20px"><p>No bills found</p></div>';
 }
 if(CONFIGURED){db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();}
 else{applyI18n();}
