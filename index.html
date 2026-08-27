@@ -477,9 +477,12 @@ async function rSale(){
   <div id="cart"></div>
   <button class="btn ghost" style="margin-bottom:12px" onclick="pickItem()">＋ ${t('addItem')}</button>
   <div class="total-row"><span>${t('subTotal')}</span><span id="t-sub">₹0</span></div>
-  <div class="total-row"><span>${t('paidAmt')}</span><input id="sl-paid" type="number" value="0" style="width:110px;padding:8px;border:2px solid #e5e7eb;border-radius:10px;font-size:14px;text-align:right"></div>
-  <div class="field"><label>${t('mode')}</label><select id="sl-mode">
-    <option value="cash">💵 ${t('cash')}</option><option value="upi">📱 ${t('upi')}</option><option value="credit">📒 ${t('credit')}</option></select></div>
+  <div class="menu-label">Payment Split</div>
+  <div class="grid2">
+    <div class="field"><label>💵 Cash ₹</label><input id="sl-cash" type="number" value="0" oninput="calcDue()"></div>
+    <div class="field"><label>📱 UPI ₹</label><input id="sl-upi" type="number" value="0" oninput="calcDue()"></div>
+  </div>
+  <div class="total-row"><span>Credit (Udhaar)</span><span id="t-credit" style="color:var(--red)">₹0</span></div>
   <button class="btn green" onclick="saveSale()">${t('saveSale')}</button>
   <div class="section-header"><span class="section-title">${t('salesHistory')}</span></div><div id="saleslist"></div>`;
   const custs=await one(db.from('customers').select('id,name').order('name'));
@@ -509,22 +512,38 @@ function drawCart(){
   :'<div class="empty-state" style="padding:20px"><div class="empty-icon">🛒</div><p>No items in cart</p></div>';
   calcTot();
 }
-function calcTot(){const s=cart.reduce((a,c)=>a+c.qty*c.price,0);$('t-sub').textContent=money(s);return s;}
+function calcTot(){const s=cart.reduce((a,c)=>a+c.qty*c.price,0);$('t-sub').textContent=money(s);calcDue();return s;}
+function calcDue(){
+  const total=cart.reduce((a,c)=>a+c.qty*c.price,0);
+  const cash=+($('sl-cash')?.value||0);
+  const upi=+($('sl-upi')?.value||0);
+  const credit=Math.max(total-cash-upi,0);
+  if($('t-credit'))$('t-credit').textContent=money(credit);
+}
 async function saveSale(){
   if(!cart.length)return toast('Empty!');
-  const total=calcTot(),paid=+($('sl-paid').value||0),mode=$('sl-mode').value;
+  const total=calcTot(),cash=+($('sl-cash')?.value||0),upi=+($('sl-upi')?.value||0);
+  const paid=cash+upi;
+  const mode=cash>0&&upi>0?'mixed':cash>0?'cash':upi>0?'upi':'credit';
   const items=cart.map(c=>({product_id:c.id,qty:c.qty,unit_price:c.price}));
-  const sid=await one(db.rpc('create_sale',{p_customer_id:saleCust?+saleCust:null,p_items:items,p_paid:paid,p_mode:mode}));
+  const sid=await one(db.rpc('create_sale',{p_customer_id:saleCust?+saleCust:null,p_items:JSON.stringify(items),p_paid:paid,p_mode:mode}));
   closeModal&&0;toast(t('saved')+' #'+sid);
   const custName=saleCust?$('sl-cust').selectedOptions[0].textContent:t('walkIn');
   const billLines=cart.map(c=>`${c.name} ×${c.qty} = ₹${(c.qty*c.price).toFixed(0)}`).join('\n');
-  const bill=`🧾 *Bill #${sid}*\n${custName}\n${billLines}\n*TOTAL: ₹${total.toFixed(0)}*\nPaid: ₹${paid.toFixed(0)}\n— HK Shop Hisaab`;
+  const paySplit=cash>0&&upi>0?`Cash: ₹${cash} + UPI: ₹${upi}`:cash>0?`Cash: ₹${cash}`:upi>0?`UPI: ₹${upi}`:'Credit';
+  const bill=`🧾 *Bill #${sid}*\n${custName}\n${billLines}\n*TOTAL: ₹${total.toFixed(0)}*\nPaid: ${paySplit}${paid<total?`\nCredit: ₹${(total-paid).toFixed(0)}`:''}\n— HK Shop Hisaab`;
   $('print-area').innerHTML=`<div class="invoice-header"><h2>HK Shop Hisaab</h2><p>Bill #${sid} · ${esc(custName)} · ${new Date().toLocaleString('en-IN')}</p></div>
     ${cart.map(c=>`<div class="invoice-row"><span>${esc(c.name)} × ${c.qty}</span><span>₹${(c.qty*c.price).toFixed(2)}</span></div>`).join('')}
     <div class="invoice-row total"><span>TOTAL</span><span>₹${total.toFixed(2)}</span></div>
-    <div class="invoice-row"><span>Paid (${mode.toUpperCase()})</span><span>₹${paid.toFixed(2)}</span></div>`;
+    <div class="invoice-row"><span>Paid (${paySplit})</span><span>₹${paid.toFixed(2)}</span></div>
+    ${paid<total?`<div class="invoice-row" style="color:var(--red)"><span>Credit (Udhaar)</span><span>₹${(total-paid).toFixed(2)}</span></div>`:''}`;
   cart=[];render('sale');
   modal(`<h3>#${sid} ✅</h3>
+  <div style="margin:12px 0;padding:12px;background:#f9fafb;border-radius:12px">
+    <div class="total-row"><span>Total</span><span>${money(total)}</span></div>
+    <div class="total-row"><span>Paid</span><span style="color:var(--green)">${money(paid)}</span></div>
+    ${paid<total?`<div class="total-row"><span>Credit</span><span style="color:var(--red)">${money(total-paid)}</span></div>`:''}
+  </div>
   <div class="btn-row"><button class="btn green" onclick="window.open('https://wa.me/?text=${encodeURIComponent(bill)}','_blank')">📲 ${t('waShare')}</button>
   <button class="btn blue" onclick="window.print()">🖨 ${t('print')}</button></div>
   <button class="btn gray" style="margin-top:10px" onclick="closeModal()">OK</button>`);
@@ -535,7 +554,7 @@ async function loadSales(){
     <div class="list-item-left">
       <div class="avatar ${avatarColor(x.customers?.name||'W')}">${avatarInitial(x.customers?.name||'W')}</div>
       <div class="list-item-info"><div class="list-item-name">#${x.invoice_no||x.id} · ${esc(x.customers?.name||t('walkIn'))}</div>
-      <div class="list-item-sub">${new Date(x.created_at).toLocaleString('en-IN')} · ${x.payment_mode.toUpperCase()}</div></div>
+      <div class="list-item-sub">${new Date(x.created_at).toLocaleString('en-IN')} · ${x.payment_mode==='mixed'?'Cash+UPI':x.payment_mode.toUpperCase()}</div></div>
     </div>
     <div class="list-item-right"><div class="list-item-amount">${money(x.total)}</div>
     ${+x.due_amount>0?`<div class="list-item-tag credit">⚠ ${money(x.due_amount)}</div>`:''}</div></div>`).join('')
@@ -659,37 +678,54 @@ function rMore(){
   <p style="text-align:center;font-size:12px;color:var(--text2);margin-top:16px;line-height:1.6">💾 Backup weekly · 🔒 Audit tamper-proof<br>100% lifetime-free: GitHub Pages + Supabase Free</p>`;
 }
 /* -------- purchases -------- */
-function purchaseModal(){
+async function purchaseModal(){
+  const prods=await one(db.from('products').select('id,name,purchase_price').order('name'));
+  window._pprods=prods;window._pur=[{pid:prods[0]?.id,qty:1,price:prods[0]?.purchase_price||0}];
   modal(`<h3>${t('newPurchase')}</h3>
   <div class="field"><label>${t('supplier')}</label><input id="pu-sup" placeholder="Supplier name"></div>
+  <div class="grid2">
+    <div class="field"><label>Paid Amount ₹</label><input id="pu-paid" type="number" value="0"></div>
+    <div class="field"><label>Payment Mode</label><select id="pu-mode"><option value="cash">💵 Cash</option><option value="upi">📱 UPI</option><option value="credit">📒 Credit</option></select></div>
+  </div>
+  <div class="menu-label">Items</div>
   <div id="pu-items"></div>
   <button class="btn ghost" onclick="puRow()">＋ ${t('addItem')}</button>
-  <button class="btn green" style="margin-top:12px" onclick="savePur()">${t('save')}</button>`);
-  window._pur=[];puRow();
+  <div class="total-row grand" id="pu-total">TOTAL: ₹0</div>
+  <button class="btn green" style="margin-top:12px" onclick="savePur()">${t('save')}</button>
+  <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
+  drawPu(prods);
 }
-async function puRow(){
-  const prods=await one(db.from('products').select('id,name').order('name'));
-  window._pprods=prods;window._pur.push({});drawPu(prods);
+function puRow(){
+  const prods=window._pprods;
+  window._pur.push({pid:prods[0]?.id,qty:1,price:prods[0]?.purchase_price||0});
+  drawPu(prods);
 }
 function drawPu(prods){
-  $('pu-items').innerHTML=window._pur.map((r,i)=>`<div class="cart-item" style="grid-template-columns:1fr 70px 80px 30px;margin-bottom:8px">
-   <select onchange="window._pur[${i}].pid=+this.value" style="padding:8px;border:1px solid #e5e7eb;border-radius:10px;font-size:13px">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
-   <input type="number" placeholder="${t('qty')}" oninput="window._pur[${i}].qty=+this.value">
-   <input type="number" placeholder="${t('price')}" oninput="window._pur[${i}].price=+this.value">
-   <button class="btn red sm" onclick="window._pur.splice(${i},1);drawPu(window._pprods)" style="width:28px;height:28px;padding:0">×</button></div>`).join('');
+  $('pu-items').innerHTML=window._pur.map((r,i)=>{
+    const tot=(r.qty||0)*(r.price||0);
+    return `<div class="cart-item" style="grid-template-columns:1fr 60px 80px 30px;margin-bottom:8px">
+   <select onchange="window._pur[${i}].pid=+this.value;window._pur[${i}].price=window._pprods.find(p=>p.id===+this.value)?.purchase_price||0;drawPu(window._pprods)" style="padding:8px;border:1px solid #e5e7eb;border-radius:10px;font-size:13px">${prods.map(p=>`<option value="${p.id}" ${p.id==r.pid?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
+   <input type="number" min="1" value="${r.qty||''}" placeholder="Qty" oninput="window._pur[${i}].qty=+this.value;drawPu(window._pprods)">
+   <input type="number" value="${r.price||''}" placeholder="₹ Cost" oninput="window._pur[${i}].price=+this.value;drawPu(window._pprods)">
+   <button class="btn red sm" onclick="window._pur.splice(${i},1);drawPu(window._pprods)" style="width:28px;height:28px;padding:0">×</button></div>`;}).join('');
+  const total=window._pur.reduce((a,r)=>a+(r.qty||0)*(r.price||0),0);
+  if($('pu-total'))$('pu-total').textContent='TOTAL: '+money(total);
 }
 async function savePur(){
-  const items=window._pur.filter(r=>r.pid&&r.qty).map(r=>({product_id:r.pid,qty:r.qty,unit_cost:r.price||0}));
-  if(!items.length)return toast('Items?');
-  await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:0}));
-  closeModal();toast(t('saved')+' — stock updated');
+  const items=window._pur.filter(r=>r.pid&&(r.qty>0)).map(r=>({product_id:r.pid,qty:r.qty,unit_cost:r.price||0}));
+  if(!items.length)return toast('Add items with qty!');
+  const paid=+($('pu-paid')?.value||0);
+  const mode=$('pu-mode')?.value||'cash';
+  await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:JSON.stringify(items),p_paid:paid}));
+  closeModal();toast(t('saved')+' — stock updated');render('more');
 }
 /* -------- Day Book -------- */
 async function showDayBook(){
   const today=new Date().toISOString().slice(0,10);
+  const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
   const[sales,pays]=await Promise.all([
-    one(db.from('sales').select('*,customers(name)').eq('created_at::date',today).order('created_at')),
-    one(db.from('payments').select('*,customers(name)').eq('created_at::date',today).order('created_at'))
+    one(db.from('sales').select('*,customers(name)').gte('created_at',today).lt('created_at',tomorrow).order('created_at')),
+    one(db.from('payments').select('*,customers(name)').gte('created_at',today).lt('created_at',tomorrow).order('created_at'))
   ]);
   const cashIn=pays.filter(p=>p.mode==='cash').reduce((a,b)=>a+ +b.amount,0);
   const upiIn=pays.filter(p=>p.mode==='upi').reduce((a,b)=>a+ +b.amount,0);
@@ -710,7 +746,7 @@ async function showDayBook(){
   <div class="menu-label">Payments (${pays.length})</div>
   <div style="max-height:25vh;overflow:auto">${pays.length?pays.map(p=>`<div class="list-item" style="margin-bottom:6px">
     <div class="list-item-left"><div class="avatar green" style="width:36px;height:36px;font-size:13px;border-radius:10px">💰</div>
-    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(p.customers?.name||'?')} · ${p.mode.toUpperCase()}</div><div class="list-item-sub">${new Date(p.created_at).toLocaleTimeString('en-IN')}</div></div></div>
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(p.customers?.name||'?')} · ${p.mode==='mixed'?'Cash+UPI':p.mode.toUpperCase()}</div><div class="list-item-sub">${new Date(p.created_at).toLocaleTimeString('en-IN')}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount green" style="font-size:14px">+${money(p.amount)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:16px"><p>No payments today</p></div>'}</div>
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
 }
