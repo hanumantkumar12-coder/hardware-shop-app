@@ -715,8 +715,10 @@ function rMore(){
   </div>
   <div class="menu-label">Reports</div>
   <div class="menu-group">
-    <div class="menu-item" onclick="showDayBook()"><div class="menu-icon green">📅</div><div class="menu-text">Day Book</div><div class="menu-arrow">›</div></div>
+    <div class="menu-item" onclick="showDayBook()"><div class="menu-icon green">📅</div><div class="menu-text">Day Book (Today)</div><div class="menu-arrow">›</div></div>
+    <div class="menu-item" onclick="showDayHistory()"><div class="menu-icon blue">📆</div><div class="menu-text">Daily Transaction History</div><div class="menu-arrow">›</div></div>
     <div class="menu-item" onclick="showOutstanding()"><div class="menu-icon red">📋</div><div class="menu-text">Outstanding (Udhaar)</div><div class="menu-arrow">›</div></div>
+    <div class="menu-item" onclick="showCustHistory()"><div class="menu-icon orange">👤</div><div class="menu-text">Customer Transaction History</div><div class="menu-arrow">›</div></div>
   </div>
   <div class="menu-label">Export Data</div>
   <div class="menu-group">
@@ -814,6 +816,82 @@ async function showOutstanding(){
     <div class="list-item-right"><div class="list-item-amount red">${money(c.balance)}</div></div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">✅</div><p>No outstanding!</p></div>'}</div>
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
 }
+/* -------- Daily Transaction History -------- */
+async function showDayHistory(){
+  const allSales=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(500));
+  const allPays=await one(db.from('payments').select('*,customers(name)').order('created_at',{ascending:false}).limit(500));
+  const allPur=await one(db.from('purchases').select('*').order('created_at',{ascending:false}).limit(200));
+  const days={};
+  allSales.forEach(s=>{const d=s.created_at.slice(0,10);if(!days[d])days[d]={sales:[],pays:[],purs:[]};days[d].sales.push(s);});
+  allPays.forEach(p=>{const d=p.created_at.slice(0,10);if(!days[d])days[d]={sales:[],pays:[],purs:[]};days[d].pays.push(p);});
+  allPur.forEach(p=>{const d=p.created_at.slice(0,10);if(!days[d])days[d]={sales:[],pays:[],purs:[]};days[d].purs.push(p);});
+  const sortedDays=Object.keys(days).sort((a,b)=>b.localeCompare(a));
+  modal(`<h3>📆 Daily Transaction History</h3>
+  <div style="max-height:65vh;overflow:auto">${sortedDays.length?sortedDays.map(d=>{
+    const day=days[d];
+    const saleTotal=day.sales.reduce((a,s)=>a+ +s.total,0);
+    const recvTotal=day.pays.reduce((a,p)=>a+ +p.amount,0);
+    const purTotal=day.purs.reduce((a,p)=>a+ +p.total,0);
+    const creditGiven=day.sales.filter(s=>+s.due_amount>0).reduce((a,s)=>a+ +s.due_amount,0);
+    return `<div style="margin-bottom:14px">
+    <div style="background:linear-gradient(135deg,#1a8917,#146b12);color:#fff;padding:10px 14px;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center">
+      <div><b>${new Date(d+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'2-digit',month:'short',year:'numeric'})}</b></div>
+      <div style="font-size:12px;opacity:.8">${day.sales.length} sales · ${day.pays.length} payments</div>
+    </div>
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:0 0 12px 12px;padding:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:8px">
+        <div style="text-align:center"><div style="font-size:10px;color:#6b7280">Sales</div><div style="font-weight:800;color:#1a8917">${money(saleTotal)}</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:#6b7280">Received</div><div style="font-weight:800;color:#1565c0">${money(recvTotal)}</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:#6b7280">Purchases</div><div style="font-weight:800;color:#e53935">${money(purTotal)}</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:#6b7280">Credit Given</div><div style="font-weight:800;color:#ff6d00">${money(creditGiven)}</div></div>
+      </div>
+      ${day.sales.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:6px 0 4px">SALES</div>`+day.sales.map(s=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #e5e7eb"><span>#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')} · ${s.payment_mode}</span><span style="font-weight:700">${money(s.total)}${+s.due_amount>0?' <span style="color:#e53935">⚠'+money(s.due_amount)+'</span>':''}</span></div>`).join(''):''}
+      ${day.pays.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:8px 0 4px">PAYMENTS RECEIVED</div>`+day.pays.map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #e5e7eb"><span>${esc(p.customers?.name||'?')} · ${p.mode}</span><span style="font-weight:700;color:#1a8917">+${money(p.amount)}</span></div>`).join(''):''}
+      ${day.purs.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:8px 0 4px">PURCHASES</div>`+day.purs.map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #e5e7eb"><span>${esc(p.supplier_name||'?')}</span><span style="font-weight:700;color:#e53935">-${money(p.total)}</span></div>`).join(''):''}
+    </div></div>`;}).join(''):'<div class="empty-state"><div class="empty-icon">📆</div><p>No transactions yet</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Customer Transaction History -------- */
+async function showCustHistory(){
+  const custs=await one(db.from('customers').select('*').order('name'));
+  modal(`<h3>👤 Customer Transaction History</h3>
+  <div class="menu-label">Select Customer</div>
+  <div style="max-height:65vh;overflow:auto">${custs.length?custs.map(c=>`<div class="list-item" onclick="showCustDetail(${c.id})" style="margin-bottom:6px">
+    <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}">${avatarInitial(c.name)}</div>
+    <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount ${+c.balance>0?'red':'green'}">${money(c.balance)}</div></div></div>`).join(''):'<div class="empty-state"><p>No customers</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+async function showCustDetail(cid){
+  const cust=await one(db.from('customers').select('*').eq('id',cid).single());
+  const[sales,pays]=await Promise.all([
+    one(db.from('sales').select('*').eq('customer_id',cid).order('created_at',{ascending:false})),
+    one(db.from('payments').select('*').eq('customer_id',cid).order('created_at',{ascending:false}))
+  ]);
+  const totalBilled=sales.reduce((a,s)=>a+ +s.total,0);
+  const totalPaid=sales.reduce((a,s)=>a+ +(s.paid_amount||0),0)+pays.reduce((a,p)=>a+ +p.amount,0);
+  const txns=[
+    ...sales.map(s=>({d:s.created_at,type:'sale',txt:`Bill #${s.invoice_no||s.id}`,debit:+s.total,credit:+(s.paid_amount||0),mode:s.payment_mode,balance:0})),
+    ...pays.map(p=>({d:p.created_at,type:'payment',txt:`Payment (${p.mode})`,debit:0,credit:+p.amount,mode:p.mode,balance:0}))
+  ].sort((a,b)=>new Date(a.d)-new Date(b.d));
+  let runningBal=0;
+  txns.forEach(t=>{runningBal+=t.debit-t.credit;t.balance=runningBal;});
+  txns.reverse();
+  modal(`<h3 style="display:flex;align-items:center;gap:10px"><div class="avatar ${avatarColor(cust.name)}" style="width:40px;height:40px;font-size:16px;border-radius:12px">${avatarInitial(cust.name)}</div><div>${esc(cust.name)}<div style="font-size:12px;color:var(--text2)">${esc(cust.phone||'')}</div></div></h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0">
+    <div class="stat-card green" style="padding:10px"><div class="stat-label">Total Billed</div><div class="stat-value" style="font-size:14px">${money(totalBilled)}</div></div>
+    <div class="stat-card blue" style="padding:10px"><div class="stat-label">Total Paid</div><div class="stat-value" style="font-size:14px">${money(totalPaid)}</div></div>
+    <div class="stat-card ${cust.balance>0?'red':'green'}" style="padding:10px"><div class="stat-label">Balance</div><div class="stat-value" style="font-size:14px">${money(cust.balance)}</div></div>
+  </div>
+  <div class="menu-label">All Transactions (${txns.length})</div>
+  <div style="max-height:45vh;overflow:auto">${txns.length?txns.map(tx=>{
+    const isCredit=tx.type==='payment';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13px">
+      <div><div style="font-weight:600">${tx.txt}</div><div style="font-size:11px;color:#6b7280">${new Date(tx.d).toLocaleDateString('en-IN')} ${new Date(tx.d).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div></div>
+      <div style="text-align:right"><div style="font-weight:700;color:${isCredit?'#1a8917':'#e53935'}">${isCredit?'-':'+'}${money(isCredit?tx.credit:tx.debit)}</div><div style="font-size:11px;color:#6b7280">Bal: ${money(tx.balance)}</div></div>
+    </div>`;}).join(''):'<div class="empty-state"><p>No transactions</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="showCustHistory()">← Back</button>`);
+}
 /* -------- audit -------- */
 async function showAudit(){
   const rows=await one(db.from('audit_log').select('*').order('id',{ascending:false}).limit(100));
@@ -859,11 +937,14 @@ function printInvoice(){
   setTimeout(()=>{pa.style.display='none';},1000);
 }
 function downloadPDF(invoiceNo){
+  const pa=$('print-area');
   const inv=document.getElementById('invoice-a4');
   if(!inv)return toast('No invoice!');
-  const opt={margin:[0,0,0,0],filename:`HK-Shop-Invoice-${invoiceNo}.pdf`,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,letterRendering:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}};
+  pa.style.display='block';
+  pa.style.position='fixed';pa.style.left='0';pa.style.top='0';pa.style.width='210mm';pa.style.zIndex='99999';pa.style.background='#fff';
   toast('Generating PDF...');
-  html2pdf().set(opt).from(inv).save().then(()=>toast('PDF saved!')).catch(()=>toast('PDF failed'));
+  const opt={margin:[0,0,0,0],filename:`HK-Shop-Invoice-${invoiceNo}.pdf`,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,letterRendering:true,logging:false},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}};
+  html2pdf().set(opt).from(inv).save().then(()=>{pa.style.display='none';toast('PDF saved!');}).catch(()=>{pa.style.display='none';toast('PDF failed');});
 }
 if(CONFIGURED){db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();}
 else{applyI18n();}
