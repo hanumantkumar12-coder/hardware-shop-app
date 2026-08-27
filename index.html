@@ -716,6 +716,7 @@ function rMore(){
   <div class="menu-label">${t('purchases')}</div>
   <div class="menu-group">
     <div class="menu-item" onclick="purchaseModal()"><div class="menu-icon green">📦</div><div class="menu-text">${t('newPurchase')}</div><div class="menu-arrow">›</div></div>
+    <div class="menu-item" onclick="showPurchaseHistory()"><div class="menu-icon blue">📋</div><div class="menu-text">Purchase History</div><div class="menu-arrow">›</div></div>
   </div>
   <div class="menu-label">${t('auditLog')}</div>
   <div class="menu-group">
@@ -739,6 +740,17 @@ function rMore(){
   <p style="text-align:center;font-size:12px;color:var(--text2);margin-top:16px;line-height:1.6">💾 Backup weekly · 🔒 Audit tamper-proof<br>100% lifetime-free: GitHub Pages + Supabase Free</p>`;
 }
 /* -------- purchases -------- */
+async function showPurchaseHistory(){
+  const purs=await one(db.from('purchases').select('*').order('created_at',{ascending:false}).limit(50));
+  modal(`<h3>📦 Purchase History</h3>
+  <div style="max-height:60vh;overflow:auto">${purs.length?purs.map(p=>{
+    const now=new Date(p.created_at);
+    return `<div class="list-item" onclick="closeModal();showPurchaseBill(${p.id})" style="margin-bottom:8px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar blue" style="width:36px;height:36px;font-size:13px;border-radius:10px">📦</div>
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">PUR-${p.id} · ${esc(p.supplier_name||'Unknown')}</div><div class="list-item-sub" style="font-size:12px">${now.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})} · ${p.paid?'✅ Paid':'⚠️ Unpaid'}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="font-size:14px;font-weight:800">${money(p.total)}</div></div></div>`;}).join(''):'<div class="empty-state" style="padding:20px"><div class="empty-icon">📦</div><p>No purchases yet</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
 async function purchaseModal(){
   const prods=await one(db.from('products').select('id,name,purchase_price').order('name'));
   window._pprods=prods;window._pur=[{pid:prods[0]?.id,qty:1,price:prods[0]?.purchase_price||0}];
@@ -856,7 +868,7 @@ async function showDayHistory(){
       </div>
       ${day.sales.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:6px 0 4px">SALES</div>`+day.sales.map(s=>`<div onclick="closeModal();showBill(${s.id})" style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #e5e7eb;cursor:pointer" onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background=''"><span>#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')} · ${s.payment_mode}</span><span style="font-weight:700">${money(s.total)}${+s.due_amount>0?' <span style="color:#e53935">⚠'+money(s.due_amount)+'</span>':''}</span></div>`).join(''):''}
       ${day.pays.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:8px 0 4px">PAYMENTS RECEIVED</div>`+day.pays.map(p=>`<div onclick="closeModal();showCustDetail(${p.customer_id})" style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #e5e7eb;cursor:pointer" onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background=''"><span>${esc(p.customers?.name||'?')} · ${p.mode}</span><span style="font-weight:700;color:#1a8917">+${money(p.amount)}</span></div>`).join(''):''}
-      ${day.purs.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:8px 0 4px">PURCHASES</div>`+day.purs.map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #e5e7eb"><span>${esc(p.supplier_name||'?')}</span><span style="font-weight:700;color:#e53935">-${money(p.total)}</span></div>`).join(''):''}
+      ${day.purs.length?`<div style="font-size:11px;font-weight:700;color:#6b7280;margin:8px 0 4px">PURCHASES</div>`+day.purs.map(p=>`<div onclick="closeModal();showPurchaseBill(${p.id})" style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #e5e7eb;cursor:pointer" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background=''"><span>PUR-${p.id} · ${esc(p.supplier_name||'?')}</span><span style="font-weight:700;color:#2563eb">-${money(p.total)}</span></div>`).join(''):''}
     </div></div>`;}).join(''):'<div class="empty-state"><div class="empty-icon">📆</div><p>No transactions yet</p></div>'}</div>
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
 }
@@ -956,6 +968,48 @@ function downloadPDF(invoiceNo){
   const opt={margin:[0,0,0,0],filename:`HK-Shop-Invoice-${invoiceNo}.pdf`,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,letterRendering:true,logging:false},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}};
   html2pdf().set(opt).from(inv).save().then(()=>{pa.style.display='none';toast('PDF saved!');}).catch(()=>{pa.style.display='none';toast('PDF failed');});
 }
+/* ===== PURCHASE BILL VIEWER ===== */
+async function showPurchaseBill(pid){
+  const p=await one(db.from('purchases').select('*').eq('id',pid).single());
+  if(!p)return toast('Purchase not found');
+  const items=await one(db.from('purchase_items').select('*').eq('purchase_id',pid));
+  const now=new Date(p.created_at);
+  const itemsHtml=(items||[]).map((c,i)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${i+1}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${esc(c.product_name||c.name||'')}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:center;font-size:12px">${c.quantity||c.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:12px">₹${+(c.cost_price||c.price||0).toFixed(2)}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;font-size:12px">₹${((c.quantity||c.qty)*(c.cost_price||c.price||0)).toFixed(2)}</td></tr>`).join('');
+  modal(`<div id="bill-modal" style="position:relative">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h3 style="margin:0">📦 Purchase #${p.id}</h3>
+    <button class="btn gray sm" onclick="closeModal()" style="font-size:18px;padding:4px 12px">✕</button>
+  </div>
+  <div id="purchase-invoice" style="width:210mm;padding:12mm;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;background:#fff;border:1px solid #e5e7eb;border-radius:8px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2563eb;padding-bottom:10px;margin-bottom:14px">
+      <div><div style="font-size:24px;font-weight:900;color:#2563eb;letter-spacing:1px">HK SHOP HISAAB</div><div style="font-size:11px;color:#6b7280;margin-top:3px">Purchase Invoice</div></div>
+      <div style="text-align:right"><div style="font-size:26px;font-weight:900;color:#2563eb">PURCHASE BILL</div><div style="font-size:12px;color:#6b7280;margin-top:3px"><b>Bill #:</b> PUR-${p.id}</div><div style="font-size:12px;color:#6b7280"><b>Date:</b> ${now.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div></div>
+    </div>
+    <div style="display:flex;gap:16px;margin-bottom:14px">
+      <div style="flex:1;background:#eff6ff;border-radius:10px;padding:10px 12px;border:1px solid #bfdbfe"><div style="font-size:10px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Supplier</div><div style="font-size:15px;font-weight:800">${esc(p.supplier_name||'Unknown')}</div>${p.supplier_phone?`<div style="font-size:12px;color:#6b7280;margin-top:2px">📞 ${esc(p.supplier_phone)}</div>`:''}</div>
+      <div style="flex:1;background:${p.paid?'#f0fdf4':'#fef2f2'};border-radius:10px;padding:10px 12px;border:1px solid ${p.paid?'#bbf7d0':'#fecaca'}"><div style="font-size:10px;font-weight:700;color:${p.paid?'#16a34a':'#dc2626'};text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Payment</div><div style="font-size:13px"><b>Total:</b> ₹${+p.total}</div><div style="font-size:13px"><b>Status:</b> <span style="color:${p.paid?'#16a34a':'#dc2626'};font-weight:700">${p.paid?'✅ PAID':'⚠️ UNPAID'}</span></div></div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
+      <thead><tr style="background:#2563eb;color:#fff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700">#</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700">Item</th><th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:700">Qty</th><th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700">Cost Price</th><th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700">Amount</th></tr></thead>
+      <tbody>${itemsHtml}</tbody>
+      <tfoot><tr style="border-top:2px solid #2563eb"><td colspan="4" style="padding:10px;text-align:right;font-size:14px;font-weight:900">TOTAL</td><td style="padding:10px;text-align:right;font-size:16px;font-weight:900;color:#2563eb">₹${+p.total}</td></tr></tfoot>
+    </table>
+    <div style="text-align:center;margin-top:16px;padding:6px;background:#f9fafb;border-radius:6px;font-size:10px;color:#9ca3af">Generated by HK Shop Hisaab · ${new Date().toLocaleString('en-IN')}</div>
+  </div>
+  </div>`);
+}
+function printPurchase(){
+  const pa=$('print-area');const inv=document.getElementById('purchase-invoice');
+  if(!inv)return;pa.innerHTML=inv.outerHTML;pa.style.display='block';
+  window.print();setTimeout(()=>{pa.style.display='none';pa.innerHTML='';},1000);
+}
+function downloadPurchasePDF(pid){
+  const inv=document.getElementById('purchase-invoice');if(!inv)return toast('No invoice!');
+  const pa=$('print-area');pa.innerHTML=inv.outerHTML;pa.style.display='block';
+  pa.style.position='fixed';pa.style.left='0';pa.style.top='0';pa.style.width='210mm';pa.style.zIndex='99999';pa.style.background='#fff';
+  toast('Generating PDF...');
+  html2pdf().set({margin:[0,0,0,0],filename:`HK-Purchase-${pid}.pdf`,image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,useCORS:true,logging:false},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).from(inv).save().then(()=>{pa.style.display='none';pa.innerHTML='';toast('PDF saved!');}).catch(()=>{pa.style.display='none';pa.innerHTML='';toast('PDF failed');});
+}
 /* ===== UNIVERSAL BILL VIEWER ===== */
 async function showBill(saleId){
   const sale=await one(db.from('sales').select('*,customers(name,phone,address)').eq('id',saleId).single());
@@ -971,10 +1025,11 @@ async function showBill(saleId){
   modal(`<div id="bill-modal" style="position:relative">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <h3 style="margin:0">🧾 Bill #${sid}</h3>
-    <div style="display:flex;gap:6px">
+    <div style="display:flex;gap:6px;align-items:center">
       <button class="btn green" onclick="window.open('https://wa.me/?text=${encodeURIComponent(billText)}','_blank')" title="Share on WhatsApp">📲</button>
       <button class="btn blue" onclick="printInvoice()" title="Print">🖨</button>
       <button class="btn orange" onclick="downloadPDF(${sid})" title="Save PDF">📄</button>
+      <button class="btn gray sm" onclick="closeModal()" style="font-size:18px;padding:4px 12px">✕</button>
     </div>
   </div>
   <div id="invoice-a4" style="width:210mm;padding:12mm;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;background:#fff;border:1px solid #e5e7eb;border-radius:8px">
@@ -1011,11 +1066,11 @@ function showQuickActions(){
     <div class="menu-item" onclick="closeModal();showBillSearch()" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#eff6ff,#bfdbfe);border:2px solid #2563eb">
       <div style="font-size:32px;margin-bottom:8px">🔍</div><div style="font-weight:800;color:#2563eb">Find Bill</div>
     </div>
+    <div class="menu-item" onclick="closeModal();showPage('purchase')" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#fefce8,#fde68a);border:2px solid #ca8a04">
+      <div style="font-size:32px;margin-bottom:8px">📦</div><div style="font-weight:800;color:#ca8a04">New Purchase</div>
+    </div>
     <div class="menu-item" onclick="closeModal();showOutstanding()" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#fef2f2,#fecaca);border:2px solid #dc2626">
       <div style="font-size:32px;margin-bottom:8px">📋</div><div style="font-weight:800;color:#dc2626">Outstanding</div>
-    </div>
-    <div class="menu-item" onclick="closeModal();showDayBook()" style="flex-direction:column;padding:20px;text-align:center;border-radius:16px;background:linear-gradient(135deg,#fefce8,#fde68a);border:2px solid #ca8a04">
-      <div style="font-size:32px;margin-bottom:8px">📅</div><div style="font-weight:800;color:#ca8a04">Day Book</div>
     </div>
   </div>
   <button class="btn gray" style="margin-top:8px" onclick="closeModal()">${t('cancel')}</button>`);
@@ -1024,7 +1079,11 @@ function showQuickActions(){
 async function showBillSearch(){
   modal(`<h3>🔍 Find Bill</h3>
   <div class="field"><label>Search by Invoice # or Customer Name</label><input id="bill-search" placeholder="e.g. 7 or Ramesh" oninput="filterBills()"></div>
-  <div id="bill-results" style="max-height:50vh;overflow:auto;margin-top:8px"><div style="text-align:center;color:#6b7280;padding:20px">Type to search...</div></div>
+  <div id="bill-results" style="max-height:35vh;overflow:auto;margin-top:8px"><div style="text-align:center;color:#6b7280;padding:20px">Type to search...</div></div>
+  <div style="margin-top:12px;border-top:1px solid #e5e7eb;padding-top:12px">
+    <div class="field"><label>Search Purchase by Supplier</label><input id="pur-search" placeholder="e.g. PaintSupplier" oninput="filterPurchases()"></div>
+    <div id="pur-results" style="max-height:25vh;overflow:auto;margin-top:8px"><div style="text-align:center;color:#6b7280;padding:10px">Type to search...</div></div>
+  </div>
   <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
 }
 async function filterBills(){
@@ -1035,11 +1094,21 @@ async function filterBills(){
     const inv=(s.invoice_no||s.id).toString().toLowerCase();
     const name=(s.customers?.name||'').toLowerCase();
     return inv.includes(q)||name.includes(q);
-  }).slice(0,20);
-  $('bill-results').innerHTML=matches.length?matches.map(s=>`<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
-    <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:32px;height:32px;font-size:12px;border-radius:8px">${avatarInitial(s.customers?.name||'W')}</div>
-    <div class="list-item-info"><div class="list-item-name">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode}</div></div></div>
-    <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(s.total)}</div><div style="font-size:11px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅'}</div></div></div>`).join(''):'<div class="empty-state" style="padding:20px"><p>No bills found</p></div>';
+  }).slice(0,15);
+  $('bill-results').innerHTML=matches.length?matches.map(s=>`<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:4px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:30px;height:30px;font-size:11px;border-radius:8px">${avatarInitial(s.customers?.name||'W')}</div>
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub" style="font-size:11px">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅'}</div></div></div>`).join(''):'<div class="empty-state" style="padding:12px"><p>No bills found</p></div>';
+}
+async function filterPurchases(){
+  const q=($('pur-search')?.value||'').trim().toLowerCase();
+  if(!q){$('pur-results').innerHTML='<div style="text-align:center;color:#6b7280;padding:10px">Type to search...</div>';return;}
+  const purs=await one(db.from('purchases').select('*').order('created_at',{ascending:false}).limit(200));
+  const matches=purs.filter(p=>(p.supplier_name||'').toLowerCase().includes(q)||(p.id||0).toString().includes(q)).slice(0,15);
+  $('pur-results').innerHTML=matches.length?matches.map(p=>`<div class="list-item" onclick="closeModal();showPurchaseBill(${p.id})" style="margin-bottom:4px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar blue" style="width:30px;height:30px;font-size:11px;border-radius:8px">📦</div>
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">PUR-${p.id} · ${esc(p.supplier_name||'Unknown')}</div><div class="list-item-sub" style="font-size:11px">${new Date(p.created_at).toLocaleDateString('en-IN')} · ${p.paid?'✅ Paid':'⚠️ Unpaid'}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(p.total)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:10px"><p>No purchases found</p></div>';
 }
 if(CONFIGURED){db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();}
 else{applyI18n();}
