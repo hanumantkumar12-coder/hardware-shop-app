@@ -486,6 +486,47 @@ async function savePur(){
   await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:0}));
   closeModal();toast(t('saved')+' — stock updated');
 }
+/* -------- Day Book -------- */
+async function showDayBook(){
+  const today=new Date().toISOString().slice(0,10);
+  const[sales,pays]=await Promise.all([
+    one(db.from('sales').select('*,customers(name)').eq('created_at::date',today).order('created_at')),
+    one(db.from('payments').select('*,customers(name)').eq('created_at::date',today).order('created_at'))
+  ]);
+  const cashIn=pays.filter(p=>p.mode==='cash').reduce((a,b)=>a+ +b.amount,0);
+  const upiIn=pays.filter(p=>p.mode==='upi').reduce((a,b)=>a+ +b.amount,0);
+  const creditSales=sales.filter(s=>+s.due_amount>0).reduce((a,b)=>a+ +b.due_amount,0);
+  const totalSales=sales.reduce((a,b)=>a+ +b.total,0);
+  modal(`<h3>📅 Day Book — ${today}</h3>
+  <div class="cards" style="margin:12px 0">
+    <div class="card"><div class="lbl">Total Sales</div><div class="val">${money(totalSales)}</div></div>
+    <div class="card"><div class="lbl">Cash Received</div><div class="val">${money(cashIn)}</div></div>
+    <div class="card"><div class="lbl">UPI Received</div><div class="val">${money(upiIn)}</div></div>
+    <div class="card ${creditSales>0?'warn':''}"><div class="lbl">Credit Given</div><div class="val">${money(creditSales)}</div></div>
+  </div>
+  <div class="secH">Sales (${sales.length})</div>
+  <div style="max-height:30vh;overflow:auto">${sales.length?sales.map(s=>`<div class="rowitem" style="box-shadow:none;border:1px solid #eef2f8">
+    <div><div class="t">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div>
+    <div class="s">${new Date(s.created_at).toLocaleTimeString('en-IN')} · ${s.payment_mode.toUpperCase()}</div></div>
+    <div class="pill">${money(s.total)}</div></div>`).join(''):'<p class="muted">No sales today</p>'}</div>
+  <div class="secH">Payments (${pays.length})</div>
+  <div style="max-height:25vh;overflow:auto">${pays.length?pays.map(p=>`<div class="rowitem" style="box-shadow:none;border:1px solid #eef2f8">
+    <div><div class="t">${esc(p.customers?.name||'?')} · ${p.mode.toUpperCase()}</div>
+    <div class="s">${new Date(p.created_at).toLocaleTimeString('en-IN')}</div></div>
+    <div class="pill grn">+${money(p.amount)}</div></div>`).join(''):'<p class="muted">No payments today</p>'}</div>
+  <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Outstanding -------- */
+async function showOutstanding(){
+  const custs=await one(db.from('customers').select('*').gt('balance',0).order('balance',{ascending:false}));
+  const totalDue=custs.reduce((a,b)=>a+ +b.balance,0);
+  modal(`<h3>📋 Outstanding (Udhaar)</h3>
+  <div class="card ${totalDue>0?'warn':''}" style="margin:10px 0"><div class="lbl">Total Outstanding</div><div class="val">${money(totalDue)}</div></div>
+  <div style="max-height:55vh;overflow:auto">${custs.length?custs.map(c=>`<div class="rowitem">
+    <div><div class="t">${esc(c.name)}</div><div class="s">${esc(c.phone||'')}</div></div>
+    <div class="pill red">${money(c.balance)}</div></div>`).join(''):'<p class="muted">✅ No outstanding!</p>'}</div>
+  <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
+}
 /* -------- audit -------- */
 async function showAudit(){
   const rows=await one(db.from('audit_log').select('*').order('id',{ascending:false}).limit(100));
