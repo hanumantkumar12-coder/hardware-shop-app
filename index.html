@@ -397,13 +397,14 @@ async function rHome(){
   const v=$('v-home');v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
   const today=new Date().toISOString().slice(0,10);
   const month=new Date().toISOString().slice(0,7);
-  const[sales,prods]=await Promise.all([
+  const[sales,prods,custs]=await Promise.all([
     one(db.from('sales').select('total,due_amount,created_at')),
-    one(db.from('products').select('name,current_stock,reorder_level').order('current_stock'))
+    one(db.from('products').select('name,current_stock,reorder_level').order('current_stock')),
+    one(db.from('customers').select('balance'))
   ]);
   const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
   const mSales=sales.filter(s=>s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
-  const udhaar=sales.reduce((a,b)=>a+ +(b.due_amount||0),0);
+  const udhaar=custs.reduce((a,b)=>a+ +b.balance,0);
   const low=prods.filter(p=>+(p.current_stock||0)<=+(p.reorder_level||0));
   const totalProducts=prods.length;
   const userName=meProfile?.name||meProfile?.email||'Owner';
@@ -464,7 +465,7 @@ async function saveProduct(id){
     current_stock:+($('pf-stk').value||0),reorder_level:+($('pf-min').value||0)};
   if(!rec.name)return toast('Name?');
   const q=id?db.from('products').update(rec).eq('id',id):db.from('products').insert(rec);
-  await one(q);closeModal();toast(t('saved'));loadProducts($('#q')?.value||'');render('stock');
+  await one(q);closeModal();toast(t('saved'));loadProducts('');render('stock');
 }
 async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));closeModal();render('stock');}
 
@@ -473,7 +474,7 @@ let cart=[],saleCust=null;
 async function rSale(){
   const v=$('v-sale');cart=cart.length?cart:[];saleCust=null;
   v.innerHTML=`<h3 style="margin-bottom:14px;font-size:18px">${t('newSale')}</h3>
-  <div class="field"><label>${t('customer')}</label><select id="sl-cust" onchange="saleCust=this.value||null"></select></div>
+  <div class="field"><label>${t('customer')}</label><div style="display:flex;gap:8px"><select id="sl-cust" onchange="saleCust=this.value||null" style="flex:1"></select><button class="btn green sm" onclick="addCustFromSale()" style="width:auto;white-space:nowrap">+ Add</button></div></div>
   <div id="cart"></div>
   <button class="btn ghost" style="margin-bottom:12px" onclick="pickItem()">＋ ${t('addItem')}</button>
   <div class="total-row"><span>${t('subTotal')}</span><span id="t-sub">₹0</span></div>
@@ -520,6 +521,26 @@ function calcDue(){
   const credit=Math.max(total-cash-upi,0);
   if($('t-credit'))$('t-credit').textContent=money(credit);
 }
+async function addCustFromSale(){
+  modal(`<h3>${t('addCust')}</h3>
+  <div class="field"><label>Name</label><input id="cf-name" placeholder="Customer name"></div>
+  <div class="grid2"><div class="field"><label>Phone</label><input id="cf-ph" type="tel"></div>
+  <div class="field"><label>Balance ₹</label><input id="cf-bal" type="number" value="0"></div></div>
+  <div class="field"><label>Address</label><input id="cf-ad"></div>
+  <button class="btn green" onclick="saveCustFromSale()">${t('save')}</button>
+  <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+async function saveCustFromSale(){
+  const rec={name:$('cf-name').value.trim(),phone:$('cf-ph').value.trim()||null,
+    address:$('cf-ad').value.trim()||null,balance:+($('cf-bal').value||0)};
+  if(!rec.name)return toast('Name?');
+  const data=await one(db.from('customers').insert(rec).select());
+  closeModal();toast(t('saved'));
+  const custs=await one(db.from('customers').select('id,name').order('name'));
+  const sel=$('sl-cust');
+  sel.innerHTML=`<option value="">🚶 ${t('walkIn')}</option>`+custs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  if(data&&data[0]){sel.value=data[0].id;saleCust=data[0].id;}
+}
 async function saveSale(){
   if(!cart.length)return toast('Empty!');
   const total=calcTot(),cash=+($('sl-cash')?.value||0),upi=+($('sl-upi')?.value||0);
@@ -545,7 +566,7 @@ async function saveSale(){
     ${paid<total?`<div class="total-row"><span>Credit</span><span style="color:var(--red)">${money(total-paid)}</span></div>`:''}
   </div>
   <div class="btn-row"><button class="btn green" onclick="window.open('https://wa.me/?text=${encodeURIComponent(bill)}','_blank')">📲 ${t('waShare')}</button>
-  <button class="btn blue" onclick="window.print()">🖨 ${t('print')}</button></div>
+  <button class="btn blue" onclick="printInvoice()">🖨 ${t('print')}</button></div>
   <button class="btn gray" style="margin-top:10px" onclick="closeModal()">OK</button>`);
 }
 async function loadSales(){
@@ -610,14 +631,16 @@ async function openKhata(i){
     one(db.from('payments').select('*').eq('customer_id',c.id).order('created_at',{ascending:false}).limit(50))
   ]);
   const led=[
-    ...sales.filter(s=>+s.due_amount>0).map(s=>({d:s.created_at,txt:`Udhaar bill #${s.invoice_no||s.id}`,dr:+s.due_amount,cr:0})),
+    ...sales.map(s=>({d:s.created_at,txt:`Bill #${s.invoice_no||s.id} (${s.payment_mode})`,dr:+s.total,cr:+s.paid_amount||0})),
     ...pays.map(p=>({d:p.created_at,txt:`${t('recvPay')} (${p.mode})`,dr:0,cr:+p.amount}))
   ].sort((a,b)=>new Date(b.d)-new Date(a.d));
   modal(`<h3 style="display:flex;align-items:center;gap:10px"><div class="avatar ${avatarColor(c.name)}" style="width:40px;height:40px;font-size:16px;border-radius:12px">${avatarInitial(c.name)}</div> <div>${esc(c.name)}<div style="font-size:14px;color:${+c.balance>0?'var(--red)':'var(--green)'};font-weight:800">${money(c.balance)}</div></div></h3>
-  <div style="max-height:38vh;overflow:auto;margin:12px 0">${led.length?led.map(l=>`<div class="list-item" style="margin-bottom:8px">
-    <div class="list-item-left"><div style="width:8px;height:8px;border-radius:50%;background:${l.dr?'var(--red)':'var(--green)'};flex-shrink:0"></div>
-    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(l.txt)}</div><div class="list-item-sub">${new Date(l.d).toLocaleDateString('en-IN')}</div></div></div>
-    <div class="list-item-right"><div class="list-item-amount ${l.dr?'red':'green'}">${l.dr?'+':'−'}${money(l.dr||l.cr)}</div></div></div>`).join(''):`<div class="empty-state" style="padding:20px"><p>${t('noData')}</p></div>`}</div>
+  <div style="max-height:38vh;overflow:auto;margin:12px 0">${led.length?led.map(l=>{
+    const net=l.dr-l.cr;
+    return `<div class="list-item" style="margin-bottom:8px">
+    <div class="list-item-left"><div style="width:8px;height:8px;border-radius:50%;background:${net>0?'var(--red)':'var(--green)'};flex-shrink:0"></div>
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(l.txt)}</div><div class="list-item-sub">${new Date(l.d).toLocaleDateString('en-IN')} ${new Date(l.d).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount ${net>0?'red':'green'}">${net>0?'+':'−'}${money(Math.abs(net))}</div></div></div>`;}).join(''):`<div class="empty-state" style="padding:20px"><p>${t('noData')}</p></div>`}</div>
   <div class="btn-row">
    <button class="btn green" onclick="payModal(${c.id},${i})">💵 ${t('recvPay')}</button>
    <button class="btn blue" onclick="waRemind(${i})">📲 Reminder</button>
@@ -721,17 +744,19 @@ async function savePur(){
 }
 /* -------- Day Book -------- */
 async function showDayBook(){
-  const today=new Date().toISOString().slice(0,10);
-  const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
+  const now=new Date();
+  const todayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()).toISOString();
+  const todayEnd=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).toISOString();
   const[sales,pays]=await Promise.all([
-    one(db.from('sales').select('*,customers(name)').gte('created_at',today).lt('created_at',tomorrow).order('created_at')),
-    one(db.from('payments').select('*,customers(name)').gte('created_at',today).lt('created_at',tomorrow).order('created_at'))
+    one(db.from('sales').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')),
+    one(db.from('payments').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at'))
   ]);
+  const todayStr=now.toISOString().slice(0,10);
   const cashIn=pays.filter(p=>p.mode==='cash').reduce((a,b)=>a+ +b.amount,0);
   const upiIn=pays.filter(p=>p.mode==='upi').reduce((a,b)=>a+ +b.amount,0);
   const creditSales=sales.filter(s=>+s.due_amount>0).reduce((a,b)=>a+ +b.due_amount,0);
   const totalSales=sales.reduce((a,b)=>a+ +b.total,0);
-  modal(`<h3>📅 Day Book — ${today}</h3>
+  modal(`<h3>📅 Day Book — ${todayStr}</h3>
   <div class="stat-grid" style="margin:12px 0">
     <div class="stat-card green" style="padding:12px"><div class="stat-label">Total Sales</div><div class="stat-value" style="font-size:18px">${money(totalSales)}</div></div>
     <div class="stat-card blue" style="padding:12px"><div class="stat-label">Cash In</div><div class="stat-value" style="font-size:18px">${money(cashIn)}</div></div>
@@ -798,6 +823,12 @@ async function exportCsv(tbl){
 }
 
 /* ================= INIT ================= */
+function printInvoice(){
+  const pa=$('print-area');
+  pa.style.display='block';
+  window.print();
+  setTimeout(()=>pa.style.display='none',1000);
+}
 if(CONFIGURED){db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();}
 else{applyI18n();}
 if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));}
