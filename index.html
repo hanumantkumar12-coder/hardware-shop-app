@@ -247,8 +247,6 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
     <div class="auth-field"><label>Email</label><input id="li-email" type="email" placeholder="owner@gmail.com"></div>
     <div class="auth-field"><label>Password</label><input id="li-pass" type="password" placeholder="••••••••"></div>
     <button class="auth-btn primary" onclick="doLogin()" data-i18n="login">Login</button>
-    <button class="auth-btn secondary" onclick="doOtp()" data-i18n="otpBtn">📧 Email me a login link</button>
-    <p id="otpMsg" style="font-size:12px;color:var(--text2);text-align:center;margin-top:6px"></p>
     <div class="auth-divider">OR</div>
     <button class="auth-btn google" onclick="doGoogle()"><img src="https://www.gstatic.com/images/branding/product/1x/gsa_48dp.png" width="18">Continue with Google</button>
     <div class="auth-note">New member? Ask the owner to invite you.</div>
@@ -298,7 +296,7 @@ if (!CONFIGURED) document.getElementById('setupBanner').style.display = 'flex';
 const L = {
   en:{appTitle:"Shop Hisaab",authSub:"Stock • Sales • Udhaar • Audit",login:"Login",logout:"Logout",email:"Email",pass:"Password",
   inviteNote:"New member? Ask the owner to invite you.",
-  otpBtn:"📧 Email me a login link (no password)",googleBtn:"Continue with Google",
+  googleBtn:"Continue with Google",
   navHome:"Home",navStock:"Stock",navSale:"Sale",navKhata:"Khata",navMore:"More",
   todaySale:"Today's Sale",monthSale:"This Month",totalUdhaar:"Total Udhaar",lowStock:"Low Stock",
   advance:"Advance",totalAdvance:"Total Advance",
@@ -315,7 +313,7 @@ const L = {
   whoChanged:"Who changed what"},
   hi:{appTitle:"शॉप हिसाब",authSub:"स्टॉक • बिक्री • उधार • ऑडिट",login:"लॉगिन",logout:"लॉगआउट",email:"ईमेल",pass:"पासवर्ड",
   inviteNote:"नया सदस्य? मालिक Supabase → Auth → Users से invite करे।",
-  otpBtn:"📧 ईमेल पर लॉगिन लिंक भेजें (पासवर्ड नहीं)",googleBtn:"Google से जारी रखें",
+  googleBtn:"Google से जारी रखें",
   navHome:"होम",navStock:"स्टॉक",navSale:"बिक्री",navKhata:"खाता",navMore:"और",
   todaySale:"आज की बिक्री",monthSale:"इस महीने",totalUdhaar:"कुल उधार",lowStock:"कम स्टॉक",
   advance:"अग्रिम",totalAdvance:"कुल अग्रिम",
@@ -366,14 +364,6 @@ async function doGoogle(){
   const{error}=await db.auth.signInWithOAuth({provider:'google',
     options:{redirectTo:location.origin+location.pathname}});
   if(error)toast('⚠ '+error.message);
-}
-async function doOtp(){
-  if(!CONFIGURED)return toast('Setup pending!');
-  const em=$('li-email').value.trim();
-  if(!em)return toast('Type your email first');
-  const{error}=await db.auth.signInWithOtp({email:em,
-    options:{emailRedirectTo:location.origin+location.pathname}});
-  $('otpMsg').textContent=error?'⚠ '+error.message:(lang==='hi'?'✅ लिंक भेज दिया! ईमेल चेक करें।':'✅ Link sent! Check your email inbox.');
 }
 async function logout(){await db.auth.signOut();location.reload();}
 async function boot(){
