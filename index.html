@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#1a8917">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' https://www.gstatic.com data:; connect-src 'self' https://*.supabase.co; font-src 'self';">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="X-Frame-Options" content="DENY">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="permissions-policy" content="camera=(), microphone=(), geolocation=()">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>HK Shop Hisaab</title>
@@ -296,6 +301,7 @@ const L = {
   otpBtn:"📧 Email me a login link (no password)",googleBtn:"Continue with Google",
   navHome:"Home",navStock:"Stock",navSale:"Sale",navKhata:"Khata",navMore:"More",
   todaySale:"Today's Sale",monthSale:"This Month",totalUdhaar:"Total Udhaar",lowStock:"Low Stock",
+  advance:"Advance",totalAdvance:"Total Advance",
   products:"Products",addProduct:"+ Add Product",searchPh:"Search product…",cost:"Cost ₹",sell:"Sell ₹",
   stock:"Stock",minLvl:"Min level",unit:"Unit",barcode:"Barcode",save:"Save",cancel:"Cancel",del:"Delete",
   newSale:"New Sale",customer:"Customer",walkIn:"Walk-in",addItem:"Add item",product:"Product",qty:"Qty",
@@ -312,6 +318,7 @@ const L = {
   otpBtn:"📧 ईमेल पर लॉगिन लिंक भेजें (पासवर्ड नहीं)",googleBtn:"Google से जारी रखें",
   navHome:"होम",navStock:"स्टॉक",navSale:"बिक्री",navKhata:"खाता",navMore:"और",
   todaySale:"आज की बिक्री",monthSale:"इस महीने",totalUdhaar:"कुल उधार",lowStock:"कम स्टॉक",
+  advance:"अग्रिम",totalAdvance:"कुल अग्रिम",
   products:"सामान / स्टॉक",addProduct:"+ नया सामान",searchPh:"सामान खोजें…",cost:"खरीद ₹",sell:"बेच ₹",
   stock:"स्टॉक",minLvl:"मिनि. लेवल",unit:"यूनिट",barcode:"बारकोड",save:"सेव करें",cancel:"रद्द",del:"हटाएं",
   newSale:"नई बिक्री",customer:"ग्राहक",walkIn:"वॉक-इन",addItem:"+ आइटम जोड़ें",product:"सामान",qty:"मात्रा",
@@ -393,6 +400,12 @@ function render(v){
   $(map[v]).classList.add('active');
   ({home:rHome,stock:rStock,sale:rSale,khata:rKhata,more:rMore})[v]();
 }
+function showPage(v){
+  document.querySelectorAll('.nav-item').forEach(b=>{
+    b.classList.toggle('active',b.dataset.v===v);
+  });
+  render(v);
+}
 
 /* ================= HOME ================= */
 async function rHome(){
@@ -402,15 +415,18 @@ async function rHome(){
   const[sales,prods,custs,recentSales]=await Promise.all([
     one(db.from('sales').select('total,due_amount,created_at')),
     one(db.from('products').select('name,current_stock,reorder_level').order('current_stock')),
-    one(db.from('customers').select('balance')),
+    one(db.from('customers').select('id,name,balance')),
     one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5))
   ]);
   const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
   const mSales=sales.filter(s=>s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
-  const udhaar=custs.reduce((a,b)=>a+ +b.balance,0);
+  const udhaar=custs.filter(c=>+c.balance>0).reduce((a,b)=>a+ +b.balance,0);
+  const advance=custs.filter(c=>+c.balance<0).reduce((a,b)=>a+Math.abs(+b.balance),0);
   const low=prods.filter(p=>+(p.current_stock||0)<=+(p.reorder_level||0));
   const totalProducts=prods.length;
   const userName=meProfile?.name||meProfile?.email||'Owner';
+  const dueCustomers=custs.filter(c=>+c.balance>0).sort((a,b)=>b.balance-a.balance);
+  const advanceCustomers=custs.filter(c=>+c.balance<0).sort((a,b)=>a.balance-b.balance);
   v.innerHTML=`
     <div class="dash-greeting">Hello, <b>${esc(userName)}</b> 👋</div>
     <div class="stat-grid">
@@ -419,6 +435,18 @@ async function rHome(){
       <div class="stat-card orange" onclick="showOutstanding()" style="cursor:pointer"><div class="stat-icon">📒</div><div class="stat-label">${t('totalUdhaar')}</div><div class="stat-value">${money(udhaar)}</div></div>
       <div class="stat-card ${low.length?'red':'green'}" onclick="showPage('stock')" style="cursor:pointer"><div class="stat-icon">${low.length?'⚠️':'✅'}</div><div class="stat-label">${t('lowStock')}</div><div class="stat-value">${low.length}</div></div>
     </div>
+    ${dueCustomers.length?`<div class="section-header"><span class="section-title" style="color:var(--red)">📒 Udhaar (Due)</span><span class="section-action" onclick="showOutstanding()">View All →</span></div>
+    <div style="margin-bottom:16px">${dueCustomers.slice(0,5).map(c=>`
+      <div class="list-item" onclick="showOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid var(--red)">
+        <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}" style="width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(c.name)}</div>
+        <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(c.name)}</div><div class="list-item-sub" style="color:var(--red);font-weight:600">Payment pending</div></div></div>
+        <div class="list-item-right"><div class="list-item-amount" style="color:var(--red);font-size:14px">${money(c.balance)}</div></div></div>`).join('')}</div>`:''}
+    ${advanceCustomers.length?`<div class="section-header"><span class="section-title" style="color:#1565c0">💵 Advances</span><span class="section-action" onclick="showOutstanding()">View All →</span></div>
+    <div style="margin-bottom:16px">${advanceCustomers.map(c=>`
+      <div class="list-item" onclick="showOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid #1565c0">
+        <div class="list-item-left"><div class="avatar" style="background:linear-gradient(135deg,#1565c0,#0d47a1);width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(c.name)}</div>
+        <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(c.name)}</div><div class="list-item-sub" style="color:#1565c0;font-weight:600">Advance given</div></div></div>
+        <div class="list-item-right"><div class="list-item-amount" style="color:#1565c0;font-size:14px">${money(Math.abs(c.balance))}</div></div></div>`).join('')}</div>`:''}
     ${low.length?`<div class="section-header"><span class="section-title">⚠️ ${t('lowStock')}</span></div>`+low.slice(0,5).map(p=>
       `<div class="low-stock-item"><div style="display:flex;align-items:center;gap:10px"><span class="warn-icon">⚠️</span><div><div style="font-weight:700;font-size:14px">${esc(p.name)}</div><div style="font-size:12px;color:var(--text2)">Only ${p.current_stock} left</div></div></div><div style="font-weight:800;color:var(--red);font-size:15px">${p.current_stock}</div></div>`).join('')
     :''}
@@ -634,8 +662,8 @@ async function loadCusts(q){
        <div class="avatar ${avatarColor(c.name)}">${avatarInitial(c.name)}</div>
        <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div>
      </div>
-     <div class="list-item-right"><div class="list-item-amount ${+c.balance>0?'red':'green'}">${money(c.balance)}</div>
-     ${+c.balance>0?'<div class="list-item-tag credit">Pending</div>':'<div class="list-item-tag paid">Settled</div>'}</div></div>`).join('')
+      <div class="list-item-right"><div class="list-item-amount ${+c.balance>0?'red':'green'}">${+c.balance>0?money(c.balance):money(Math.abs(c.balance))}</div>
+      ${+c.balance>0?'<div class="list-item-tag credit">Due</div>':+c.balance<0?'<div class="list-item-tag" style="background:#e3f2fd;color:#1565c0">Advance</div>':'<div class="list-item-tag paid">Settled</div>'}</div></div>`).join('')
   :`<div class="empty-state"><div class="empty-icon">📒</div><p>${t('noData')}</p></div>`;
 }
 function editCust(i){
@@ -667,7 +695,9 @@ async function openKhata(i){
     ...sales.map(s=>({d:s.created_at,sid:s.id,txt:`Bill #${s.invoice_no||s.id} (${s.payment_mode})`,dr:+s.total,cr:+s.paid_amount||0})),
     ...pays.map(p=>({d:p.created_at,sid:null,txt:`${t('recvPay')} (${p.mode})`,dr:0,cr:+p.amount}))
   ].sort((a,b)=>new Date(b.d)-new Date(a.d));
-  modal(`<h3 style="display:flex;align-items:center;gap:10px"><div class="avatar ${avatarColor(c.name)}" style="width:40px;height:40px;font-size:16px;border-radius:12px">${avatarInitial(c.name)}</div> <div>${esc(c.name)}<div style="font-size:14px;color:${+c.balance>0?'var(--red)':'var(--green)'};font-weight:800">${money(c.balance)}</div></div></h3>
+  const balText = +c.balance > 0 ? `Due: ${money(c.balance)}` : +c.balance < 0 ? `Advance: ${money(Math.abs(c.balance))}` : 'Settled';
+  const balColor = +c.balance > 0 ? 'var(--red)' : +c.balance < 0 ? '#1565c0' : 'var(--green)';
+  modal(`<h3 style="display:flex;align-items:center;gap:10px"><div class="avatar ${avatarColor(c.name)}" style="width:40px;height:40px;font-size:16px;border-radius:12px">${avatarInitial(c.name)}</div> <div>${esc(c.name)}<div style="font-size:14px;color:${balColor};font-weight:800">${balText}</div></div></h3>
   <div style="max-height:38vh;overflow:auto;margin:12px 0">${led.length?led.map(l=>{
     const net=l.dr-l.cr;
     const clickFn=l.sid?`onclick="closeModal();showBill(${l.sid})"`:'';
@@ -826,14 +856,27 @@ async function showDayBook(){
 }
 /* -------- Outstanding -------- */
 async function showOutstanding(){
-  const custs=await one(db.from('customers').select('*').gt('balance',0).order('balance',{ascending:false}));
-  const totalDue=custs.reduce((a,b)=>a+ +b.balance,0);
-  modal(`<h3>📋 Outstanding (Udhaar)</h3>
-  <div class="stat-card red" style="margin:12px 0"><div class="stat-label">Total Outstanding</div><div class="stat-value">${money(totalDue)}</div></div>
-  <div style="max-height:55vh;overflow:auto">${custs.length?custs.map(c=>`<div class="list-item" onclick="closeModal();showCustDetail(${c.id})" style="margin-bottom:8px;cursor:pointer">
+  const allCusts=await one(db.from('customers').select('*').neq('balance',0).order('balance',{ascending:false}));
+  const dues=allCusts.filter(c=>+c.balance>0);
+  const advances=allCusts.filter(c=>+c.balance<0);
+  const totalDue=dues.reduce((a,b)=>a+ +b.balance,0);
+  const totalAdvance=advances.reduce((a,b)=>a+Math.abs(+b.balance),0);
+  modal(`<h3>📋 Outstanding & Advances</h3>
+  <div class="stat-grid" style="margin:12px 0;grid-template-columns:1fr 1fr">
+    <div class="stat-card red" style="padding:12px"><div class="stat-label">Total Udhaar</div><div class="stat-value" style="font-size:16px">${money(totalDue)}</div></div>
+    <div class="stat-card blue" style="padding:12px"><div class="stat-label">Total Advance</div><div class="stat-value" style="font-size:16px">${money(totalAdvance)}</div></div>
+  </div>
+  ${dues.length?`<div class="menu-label" style="color:var(--red)">Udhaar (${dues.length})</div>
+  <div style="max-height:30vh;overflow:auto">${dues.map(c=>`<div class="list-item" onclick="closeModal();showCustDetail(${c.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}">${avatarInitial(c.name)}</div>
     <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div></div>
-    <div class="list-item-right"><div class="list-item-amount red">${money(c.balance)}</div></div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">✅</div><p>No outstanding!</p></div>'}</div>
+    <div class="list-item-right"><div class="list-item-amount red">${money(c.balance)}</div></div></div>`).join('')}</div>`:''}
+  ${advances.length?`<div class="menu-label" style="color:#1565c0">Advance (${advances.length})</div>
+  <div style="max-height:30vh;overflow:auto">${advances.map(c=>`<div class="list-item" onclick="closeModal();showCustDetail(${c.id})" style="margin-bottom:6px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}">${avatarInitial(c.name)}</div>
+    <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="color:#1565c0">${money(Math.abs(c.balance))}</div></div></div>`).join('')}</div>`:''}
+  ${!dues.length&&!advances.length?'<div class="empty-state"><div class="empty-icon">✅</div><p>All settled!</p></div>':''}
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
 }
 /* -------- Daily Transaction History -------- */
@@ -879,7 +922,7 @@ async function showCustHistory(){
   <div style="max-height:65vh;overflow:auto">${custs.length?custs.map(c=>`<div class="list-item" onclick="showCustDetail(${c.id})" style="margin-bottom:6px">
     <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}">${avatarInitial(c.name)}</div>
     <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div></div>
-    <div class="list-item-right"><div class="list-item-amount ${+c.balance>0?'red':'green'}">${money(c.balance)}</div></div></div>`).join(''):'<div class="empty-state"><p>No customers</p></div>'}</div>
+    <div class="list-item-right"><div class="list-item-amount" style="color:${+c.balance>0?'var(--red)':+c.balance<0?'#1565c0':'var(--green)'}">${+c.balance>0?money(c.balance):+c.balance<0?money(Math.abs(c.balance)):money(0)}</div></div></div>`).join(''):'<div class="empty-state"><p>No customers</p></div>'}</div>
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
 }
 async function showCustDetail(cid){
@@ -897,11 +940,13 @@ async function showCustDetail(cid){
   let runningBal=0;
   txns.forEach(t=>{runningBal+=t.debit-t.credit;t.balance=runningBal;});
   txns.reverse();
+  const balLabel = cust.balance > 0 ? 'Due' : cust.balance < 0 ? 'Advance' : 'Balance';
+  const balColor = cust.balance > 0 ? 'red' : cust.balance < 0 ? 'blue' : 'green';
   modal(`<h3 style="display:flex;align-items:center;gap:10px"><div class="avatar ${avatarColor(cust.name)}" style="width:40px;height:40px;font-size:16px;border-radius:12px">${avatarInitial(cust.name)}</div><div>${esc(cust.name)}<div style="font-size:12px;color:var(--text2)">${esc(cust.phone||'')}</div></div></h3>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0">
     <div class="stat-card green" style="padding:10px"><div class="stat-label">Total Billed</div><div class="stat-value" style="font-size:14px">${money(totalBilled)}</div></div>
     <div class="stat-card blue" style="padding:10px"><div class="stat-label">Total Paid</div><div class="stat-value" style="font-size:14px">${money(totalPaid)}</div></div>
-    <div class="stat-card ${cust.balance>0?'red':'green'}" style="padding:10px"><div class="stat-label">Balance</div><div class="stat-value" style="font-size:14px">${money(cust.balance)}</div></div>
+    <div class="stat-card ${balColor}" style="padding:10px"><div class="stat-label">${balLabel}</div><div class="stat-value" style="font-size:14px">${money(Math.abs(cust.balance))}</div></div>
   </div>
   <div class="menu-label">All Transactions (${txns.length})</div>
   <div style="max-height:45vh;overflow:auto">${txns.length?txns.map(tx=>{
