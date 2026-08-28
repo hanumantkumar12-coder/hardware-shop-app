@@ -464,7 +464,7 @@ async function loadProducts(q){
     return `<div class="list-item" onclick="editProduct(${i})">
       <div class="list-item-left">
         <div class="avatar ${avatarColor(p.name)}">${avatarInitial(p.name)}</div>
-        <div class="list-item-info"><div class="list-item-name">${esc(p.name)}</div><div class="list-item-sub">${t('sell')} ${money(p.selling_price)} · ${t('cost')} ${meProfile.role==='owner'?money(p.purchase_price):'•••'}</div></div>
+        <div class="list-item-info"><div class="list-item-name">${esc(p.name)}</div><div class="list-item-sub">${t('sell')} ${money(p.selling_price)} · ${t('cost')} ${(meProfile.role==='owner'||meProfile.role==='partner')?money(p.purchase_price):'•••'}</div></div>
       </div>
       <div class="list-item-right"><div class="list-item-amount ${low?'red':'green'}">${p.current_stock}</div><div style="font-size:11px;color:var(--text2)">${esc(p.unit||'pcs')}</div></div></div>`;}).join('')
   :`<div class="empty-state"><div class="empty-icon">📦</div><p>${t('noData')}</p></div>`;
@@ -669,7 +669,7 @@ function editCust(i){
 async function saveCust(id){
   const rec={name:$('cf-name').value.trim(),phone:$('cf-ph').value.trim()||null,
     address:$('cf-ad').value.trim()||null};
-  if(id){if(meProfile.role==='owner')rec.balance=+($('cf-bal').value||0);}
+  if(id){if(meProfile.role==='owner'||meProfile.role==='partner')rec.balance=+($('cf-bal').value||0);}
   else rec.balance=+($('cf-bal').value||0);
   if(!rec.name)return toast('Name?');
   await one(id?db.from('customers').update(rec).eq('id',id):db.from('customers').insert(rec));
@@ -699,7 +699,7 @@ async function openKhata(i){
    <button class="btn green" onclick="payModal(${c.id},${i})">💵 ${t('recvPay')}</button>
    <button class="btn blue" onclick="waRemind(${i})">📲 Reminder</button>
   </div>
-  ${meProfile.role==='owner'?`<button class="btn gray" style="margin-top:10px" onclick="editCust(${i});">✏️ Edit Customer</button>`:''}`);
+  ${(meProfile.role==='owner'||meProfile.role==='partner')?`<button class="btn gray" style="margin-top:10px" onclick="editCust(${i});">✏️ Edit Customer</button>`:''}`);
 }
 function payModal(cid,i){
   modal(`<h3>${t('recvPay')}</h3>
@@ -739,7 +739,7 @@ function rMore(){
   </div>
   <div class="menu-label">${t('auditLog')}</div>
   <div class="menu-group">
-    <div class="menu-item" onclick="showAudit()" ${meProfile.role==='owner'?'':'style=opacity:.5'}><div class="menu-icon orange">🕵</div><div class="menu-text">${t('whoChanged')}</div><div class="menu-arrow">›</div></div>
+    <div class="menu-item" onclick="showAudit()" ${(meProfile.role==='owner'||meProfile.role==='partner')?'':'style=opacity:.5'}><div class="menu-icon orange">🕵</div><div class="menu-text">${t('whoChanged')}</div><div class="menu-arrow">›</div></div>
   </div>
   <div class="menu-label">Reports</div>
   <div class="menu-group">
