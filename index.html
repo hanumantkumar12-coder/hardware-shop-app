@@ -19,19 +19,12 @@
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
 html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Devanagari',sans-serif;background:#f0f2f5;color:var(--text);overflow-x:hidden;-webkit-font-smoothing:antialiased}
-@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-@keyframes slideIn{from{opacity:0;transform:translateX(-20px)}to{opacity:1;transform:translateX(0)}}
-@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
-@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
-@keyframes countUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-@keyframes bounceIn{0%{transform:scale(.3);opacity:0}50%{transform:scale(1.05)}70%{transform:scale(.9)}100%{transform:scale(1);opacity:1}}
-@keyframes ripple{0%{transform:scale(0);opacity:.5}100%{transform:scale(4);opacity:0}}
 
 /* ===== AUTH ===== */
 .auth-screen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,#1a8917 0%,#2e7d32 50%,#1b5e20 100%);padding:24px;position:relative;overflow:hidden}
 .auth-screen::before{content:'';position:absolute;top:-60%;right:-30%;width:500px;height:500px;background:radial-gradient(circle,rgba(255,255,255,.1) 0%,transparent 70%);border-radius:50%}
 .auth-screen::after{content:'';position:absolute;bottom:-40%;left:-20%;width:400px;height:400px;background:radial-gradient(circle,rgba(255,255,255,.08) 0%,transparent 70%);border-radius:50%}
-.auth-card{background:#fff;border-radius:24px;padding:32px 24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.25);position:relative;z-index:2;animation:bounceIn .6s ease}
+.auth-card{background:#fff;border-radius:24px;padding:32px 24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.25);position:relative;z-index:2}
 .auth-logo{width:80px;height:80px;background:linear-gradient(135deg,var(--green),var(--green-dark));border-radius:24px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;box-shadow:0 8px 24px rgba(26,137,23,.3);font-size:32px;color:#fff;font-weight:800}
 .auth-title{font-size:22px;font-weight:800;text-align:center;margin-bottom:4px;color:var(--text)}
 .auth-sub{font-size:13px;color:var(--text2);text-align:center;margin-bottom:24px}
@@ -68,14 +61,14 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 .nav-item.active::after{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:24px;height:3px;background:var(--green);border-radius:0 0 3px 3px}
 
 /* ===== VIEWS ===== */
-.view{display:none;padding:16px;padding-bottom:90px;max-width:720px;margin:0 auto;animation:fadeUp .3s ease}
+.view{display:none;padding:16px;padding-bottom:90px;max-width:720px;margin:0 auto}
 .view.active{display:block}
 
 /* ===== DASHBOARD CARDS ===== */
 .dash-greeting{padding:4px 0 16px;font-size:14px;color:var(--text2)}
 .dash-greeting b{color:var(--text);font-size:16px}
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
-.stat-card{background:var(--card);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);position:relative;overflow:hidden;animation:fadeUp .4s ease;transition:transform .2s}
+.stat-card{background:var(--card);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);position:relative;overflow:hidden;transition:transform .2s}
 .stat-card:active{transform:scale(.97)}
 .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px}
 .stat-card.green::before{background:linear-gradient(90deg,var(--green),#4caf50)}
@@ -88,7 +81,7 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 .stat-card.orange .stat-icon{background:var(--orange-light);color:var(--orange)}
 .stat-card.red .stat-icon{background:var(--red-light);color:var(--red)}
 .stat-label{font-size:12px;color:var(--text2);font-weight:500;margin-bottom:4px}
-.stat-value{font-size:22px;font-weight:800;animation:countUp .5s ease}
+.stat-value{font-size:22px;font-weight:800}
 .stat-card.green .stat-value{color:var(--green)}
 .stat-card.blue .stat-value{color:var(--blue)}
 .stat-card.orange .stat-value{color:var(--orange)}
@@ -100,7 +93,7 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 .section-action{font-size:13px;font-weight:600;color:var(--green);cursor:pointer;text-decoration:none}
 
 /* ===== LIST ITEMS ===== */
-.list-item{background:var(--card);border-radius:14px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow);transition:all .2s;animation:slideIn .3s ease;cursor:pointer}
+.list-item{background:var(--card);border-radius:14px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow);transition:all .2s;cursor:pointer}
 .list-item:active{transform:scale(.98);box-shadow:0 1px 4px rgba(0,0,0,.05)}
 .list-item-left{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
 .avatar{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0}
@@ -122,7 +115,7 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 .list-item-tag.paid{background:var(--green-light);color:var(--green)}
 
 /* ===== LOW STOCK CARD ===== */
-.low-stock-item{background:linear-gradient(135deg,#fff3e0,#fff8e1);border:1px solid #ffcc02;border-radius:14px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;animation:slideIn .3s ease}
+.low-stock-item{background:linear-gradient(135deg,#fff3e0,#fff8e1);border:1px solid #ffcc02;border-radius:14px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 .low-stock-item .warn-icon{font-size:20px;margin-right:10px}
 
 /* ===== SEARCH ===== */
@@ -151,9 +144,9 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 .btn-row .btn{flex:1}
 
 /* ===== MODAL ===== */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;padding:16px;overflow:auto;backdrop-filter:blur(4px);animation:fadeUp .2s ease}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;padding:16px;overflow:auto;backdrop-filter:blur(4px)}
 .modal-overlay.active{display:flex;align-items:flex-end;justify-content:center}
-.modal-sheet{background:#fff;border-radius:24px 24px 0 0;padding:20px 16px;width:100%;max-width:520px;max-height:85vh;overflow:auto;animation:fadeUp .3s ease;margin-top:auto}
+.modal-sheet{background:#fff;border-radius:24px 24px 0 0;padding:20px 16px;width:100%;max-width:520px;max-height:85vh;overflow:auto;margin-top:auto}
 .modal-handle{width:40px;height:4px;background:#d1d5db;border-radius:4px;margin:0 auto 16px}
 .modal-sheet h3{font-size:18px;font-weight:800;margin-bottom:16px;color:var(--text)}
 
@@ -198,7 +191,7 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 .menu-label{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;padding:16px 16px 8px;background:transparent}
 
 /* ===== TOAST ===== */
-.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:12px 24px;border-radius:14px;font-size:14px;font-weight:600;display:none;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,.2);animation:bounceIn .3s ease}
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:12px 24px;border-radius:14px;font-size:14px;font-weight:600;display:none;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,.2)}
 .toast.show{display:block}
 
 /* ===== AUDIT TABLE ===== */
@@ -216,8 +209,8 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 .empty-state p{font-size:14px}
 
 /* ===== LOADING ===== */
-.skeleton{background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:8px;height:20px;margin-bottom:8px}
-.skeleton-circle{width:44px;height:44px;border-radius:14px;animation:shimmer 1.5s infinite;background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);background-size:200% 100%}
+.skeleton{background:#e8e8e8;border-radius:8px;height:20px;margin-bottom:8px}
+.skeleton-circle{width:44px;height:44px;border-radius:14px;background:#e8e8e8}
 
 /* ===== SETUP BANNER ===== */
 .setup-banner{background:linear-gradient(135deg,#fff3cd,#ffeaa7);border:1px solid #ffc107;border-radius:14px;padding:14px 16px;font-size:13px;color:#856404;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px}
@@ -1077,7 +1070,7 @@ async function showAudit(){
   const rows=await one(db.from('audit_log').select('*').order('id',{ascending:false}).limit(100));
   modal(`<h3>🕵 Audit Log (${rows.length})</h3>
   <div style="max-height:60vh;overflow:auto"><table class="audit-table"><tr><th>Who</th><th>What</th><th>When</th></tr>
-  ${rows.map(r=>`<tr onclick="auditDetail(this)" data-old='${esc(JSON.stringify(r.old_row))}' data-new='${esc(JSON.stringify(r.new_row))}' style="cursor:pointer">
+  ${rows.map(r=>`<tr onclick="auditDetail(this)" data-who="${esc(r.actor_name||'?')}" data-action="${esc(r.action)}" data-table="${esc(r.table_name)}" data-rid="${esc(String(r.row_id??''))}" data-old="${r.old_row==null?'null':esc(JSON.stringify(r.old_row))}" data-new="${r.new_row==null?'null':esc(JSON.stringify(r.new_row))}" style="cursor:pointer">
    <td style="font-weight:600">${esc(r.actor_name||'?')}</td>
    <td><span class="audit-tag ${(r.action||'I')[0]}">${r.action}</span> ${esc(r.table_name)} #${r.row_id??''}</td>
    <td style="color:var(--text2)">${new Date(r.acted_at).toLocaleString('en-IN')}</td></tr>`).join('')}</table></div>
@@ -1085,11 +1078,25 @@ async function showAudit(){
   <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
 }
 function auditDetail(tr){
-  const o=JSON.parse(tr.dataset.old||'{}'),n=JSON.parse(tr.dataset.new||'{}');
-  const keys=[...new Set([...Object.keys(o||{}),...Object.keys(n||{})])].filter(k=>!['updated_at'].includes(k));
-  const diffs=keys.filter(k=>JSON.stringify(o?.[k])!==JSON.stringify(n?.[k]))
-    .map(k=>`<tr><td style="font-weight:600">${k}</td><td>${esc(JSON.stringify(o?.[k]))}</td><td>${esc(JSON.stringify(n?.[k]))}</td></tr>`).join('');
-  alert(`${t('whoChanged')}:\n\n`+(diffs?diffs.replace(/<\/?td>|<\/?tr>/g,' | '):'(insert/delete)'));
+  const who=tr.dataset.who||'?',action=tr.dataset.action,table=tr.dataset.table,rowId=tr.dataset.rid;
+  const o=tr.dataset.old&&tr.dataset.old!=='null'?JSON.parse(tr.dataset.old):{};
+  const n=tr.dataset.new&&tr.dataset.new!=='null'?JSON.parse(tr.dataset.new):{};
+  const fmt=v=>{if(v===null||v===undefined)return '∅';if(typeof v==='object')return JSON.stringify(v);return String(v);};
+  let rowsHtml='';
+  if(action==='INSERT'){
+    rowsHtml=Object.keys(n).filter(k=>k!=='updated_at').map(k=>`<tr><td style="font-weight:600">${esc(k)}</td><td style="color:var(--green)">${esc(fmt(n[k]))}</td></tr>`).join('');
+  }else if(action==='DELETE'){
+    rowsHtml=Object.keys(o).filter(k=>k!=='updated_at').map(k=>`<tr><td style="font-weight:600">${esc(k)}</td><td style="color:var(--red)">${esc(fmt(o[k]))}</td></tr>`).join('');
+  }else{
+    const keys=[...new Set([...Object.keys(o),...Object.keys(n)])].filter(k=>k!=='updated_at'&&JSON.stringify(o[k])!==JSON.stringify(n[k]));
+    rowsHtml=keys.map(k=>`<tr><td style="font-weight:600">${esc(k)}</td><td style="color:var(--red)">${esc(fmt(o[k]))}</td><td style="color:var(--green)">${esc(fmt(n[k]))}</td></tr>`).join('');
+    if(!rowsHtml)rowsHtml=`<tr><td colspan="3" style="color:var(--text2)">No field changes</td></tr>`;
+  }
+  const colHead=action==='UPDATE'?'<th>Field</th><th>Old</th><th>New</th>':'<th>Field</th><th>Value</th>';
+  modal(`<h3>${action} · ${esc(table)} #${esc(rowId)}</h3>
+  <p style="font-size:13px;color:var(--text2);margin:4px 0 10px">By: <b>${esc(who)}</b></p>
+  <div style="max-height:55vh;overflow:auto"><table class="audit-table"><tr>${colHead}</tr>${rowsHtml}</table></div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
 }
 /* -------- csv -------- */
 async function exportCsv(tbl){
