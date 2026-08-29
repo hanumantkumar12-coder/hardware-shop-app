@@ -337,7 +337,7 @@ const money=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:
 const _smart={},_TTL=10000;
 const _cacheGet=k=>{const e=_smart[k];return e&&Date.now()-e.t<_TTL?e.v:null;};
 const _cachePut=(k,v)=>{_smart[k]={t:Date.now(),v};};
-function invalidateCache(){for(const k in _smart)delete _smart[k];_custCache=[];_prodCache=[];}
+function invalidateCache(){_custCache=[];_prodCache=[];}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)invalidateCache();});
 const toast=(m)=>{const el=$('toast');el.textContent=m;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200);};
 function modal(html){$('modalContent').innerHTML=html;$('modalOverlay').classList.add('active');}
@@ -405,18 +405,13 @@ async function rHome(){
   const v=$('v-home');
   const today=new Date().toISOString().slice(0,10);
   const month=new Date().toISOString().slice(0,7);
-  let D=_cacheGet('home');
-  if(!D){
-    v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
-    let sales=[],prods=[],custs=[],supps=[],recentSales=[];
-    try{sales=await one(db.from('sales').select('total,due_amount,created_at'));}catch(e){}
-    try{prods=await one(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock'));}catch(e){}
-    try{custs=await one(db.from('customers').select('id,name,balance'));}catch(e){}
-    try{supps=await one(db.from('suppliers').select('id,name,balance'));}catch(e){}
-    try{recentSales=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5));}catch(e){}
-    D={sales: sales||[],prods: prods||[],custs: custs||[],supps: supps||[],recentSales: recentSales||[]};_cachePut('home',D);
-  }
-  const{sales,prods,custs,supps,recentSales}=D;
+  v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
+  let sales=[],prods=[],custs=[],supps=[],recentSales=[];
+  try{sales=await one(db.from('sales').select('total,due_amount,created_at'));}catch(e){console.error('sales',e);}
+  try{prods=await one(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock'));}catch(e){console.error('prods',e);}
+  try{custs=await one(db.from('customers').select('id,name,balance'));}catch(e){console.error('custs',e);}
+  try{supps=await one(db.from('suppliers').select('id,name,balance'));}catch(e){console.error('supps',e);}
+  try{recentSales=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5));}catch(e){console.error('recentSales',e);}
   const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
   const mSales=sales.filter(s=>s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
   const udhaar=custs.filter(c=>+c.balance>0).reduce((a,b)=>a+ +c.balance,0);
@@ -1264,8 +1259,6 @@ async function filterPurchases(){
     <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(p.total)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:10px"><p>No purchases found</p></div>';
 }
 if(CONFIGURED){
-  window.onerror=(m,s,l,c,e)=>{document.body.innerHTML='<div style="padding:40px;font-family:monospace;color:red"><h2>⚠ JS Error</h2><pre>'+m+'\n'+s+':'+l+':'+c+'</pre></div>';};
-  window.onunhandledrejection=(e)=>{document.body.innerHTML='<div style="padding:40px;font-family:monospace;color:red"><h2>⚠ Unhandled Promise</h2><pre>'+e.reason+'</pre></div>';};
   db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();}
 else{applyI18n();}
 if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));}
