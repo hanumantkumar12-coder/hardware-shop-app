@@ -367,14 +367,17 @@ async function doGoogle(){
 async function logout(){await db.auth.signOut();location.reload();}
 async function boot(){
   if(!CONFIGURED)return;
-  const{data:{user}}=await db.auth.getUser();
-  if(!user)return;
-  let prof=await one(db.from('profiles').select('*').eq('id',user.id).maybeSingle());
-  if(!prof){prof={name:user.email,role:'staff'};}
-  meProfile={...prof,email:user.email};
-  $('v-auth').style.display='none';
-  $('hdr').style.display='flex';$('app').style.display='block';$('navbar').style.display='flex';
-  applyI18n();render('home');
+  try{
+    const{data:{user}}=await db.auth.getUser();
+    if(!user)return;
+    let prof;
+    try{prof=await one(db.from('profiles').select('*').eq('id',user.id).maybeSingle());}catch(e){prof=null;}
+    if(!prof){prof={name:user.email,role:'owner'};}
+    meProfile={...prof,email:user.email};
+    $('v-auth').style.display='none';
+    $('hdr').style.display='flex';$('app').style.display='block';$('navbar').style.display='flex';
+    applyI18n();render('home');
+  }catch(e){console.error('boot failed',e);$('v-auth').style.display='block';}
 }
 
 /* ================= NAV ================= */
@@ -387,7 +390,7 @@ function render(v){
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   const map={home:'v-home',stock:'v-stock',sale:'v-sale',khata:'v-khata',more:'v-more'};
   $(map[v]).classList.add('active');
-  ({home:rHome,stock:rStock,sale:rSale,khata:rKhata,more:rMore})[v]();
+  ({home:rHome,stock:rStock,sale:rSale,khata:rKhata,more:rMore})[v]().catch(e=>console.error('view error',v,e));
 }
 function showPage(v){
   document.querySelectorAll('.nav-item').forEach(b=>{
