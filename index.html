@@ -993,13 +993,12 @@ async function loadDateRangeSales(){
   const sales=await one(db.from('sales').select('*,customers(name)').gte('created_at',from).lte('created_at',to).order('created_at',{ascending:false})).catch(()=>[]);
   const list=sales||[];
   const total=list.reduce((a,b)=>a+ +b.total,0);
-  let cash=0,upi=0,mixed=0;
+  let cash=0,upi=0;
   list.forEach(s=>{
     const ca=+(s.cash_amount||0),ua=+(s.upi_amount||0);
     if(ca>0||ua>0){cash+=ca;upi+=ua;}
     else if(s.payment_mode==='cash')cash+=+(s.paid_amount||0);
     else if(s.payment_mode==='upi')upi+=+(s.paid_amount||0);
-    else if(s.payment_mode==='mixed')mixed+=+(s.paid_amount||0);
   });
   const credit=list.reduce((a,b)=>a+ +(b.due_amount||0),0);
   const bills=list.length;
@@ -1008,14 +1007,11 @@ async function loadDateRangeSales(){
     <div class="stat-card green" style="padding:10px"><div class="stat-label">💵 Cash</div><div class="stat-value" style="font-size:14px">${money(cash)}</div></div>
     <div class="stat-card blue" style="padding:10px"><div class="stat-label">📱 UPI</div><div class="stat-value" style="font-size:14px">${money(upi)}</div></div>
   </div>
-  <div class="stat-grid" style="margin-bottom:6px">
-    <div class="stat-card orange" style="padding:10px"><div class="stat-label">🔀 Mixed</div><div class="stat-value" style="font-size:14px">${money(mixed)}</div></div>
-    <div class="stat-card red" style="padding:10px"><div class="stat-label">💳 Credit</div><div class="stat-value" style="font-size:14px">${money(credit)}</div></div>
-  </div>
   <div class="stat-grid" style="margin-bottom:10px">
-    <div class="stat-card" style="padding:10px;background:#f3e8ff"><div class="stat-label">🧾 Bills</div><div class="stat-value" style="font-size:14px;color:#7c3aed">${bills}</div></div>
-    <div class="stat-card" style="padding:10px;background:#f0fdf4"><div class="stat-label">💰 Total</div><div class="stat-value" style="font-size:14px;color:#16a34a">${money(total)}</div></div>
+    <div class="stat-card red" style="padding:10px"><div class="stat-label">💳 Udhar</div><div class="stat-value" style="font-size:14px">${money(credit)}</div></div>
+    <div class="stat-card orange" style="padding:10px"><div class="stat-label">🧾 Bills</div><div class="stat-value" style="font-size:14px">${bills}</div></div>
   </div>
+  <div style="text-align:center;padding:8px;background:#f0fdf4;border-radius:10px;margin-bottom:12px;font-size:13px;font-weight:700;color:#16a34a">Total Bill: ${money(total)}</div>
   <div style="max-height:40vh;overflow:auto">${list.length?list.map(s=>`<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:32px;height:32px;font-size:12px;border-radius:8px">${avatarInitial(s.customers?.name||'W')}</div>
     <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode.toUpperCase()}</div></div></div>
