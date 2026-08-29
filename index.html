@@ -1013,16 +1013,16 @@ async function loadDateRangeSales(){
   </div>
   <div style="text-align:center;padding:8px;background:#f0fdf4;border-radius:10px;margin-bottom:12px;font-size:13px;font-weight:700;color:#16a34a">Total Bill: ${money(total)}</div>
   <div style="max-height:40vh;overflow:auto">${list.length?list.map(s=>{
-    const ca=+(s.cash_amount||0),ua=+(s.upi_amount||0),due=+(s.due_amount||0);
-    let tag='',tagColor='#16a34a',tagBg='#f0fdf4';
-    if(due>0){tag='UDHAR';tagColor='#dc2626';tagBg='#fef2f2';}
-    else if(ca>0&&ua>0){tag='CASH+UPI';tagColor='#2563eb';tagBg='#eff6ff';}
-    else if(ua>0||s.payment_mode==='upi'){tag='UPI';tagColor='#2563eb';tagBg='#eff6ff';}
-    else{tag='CASH';tagColor='#16a34a';tagBg='#f0fdf4';}
+    const ca=+(s.cash_amount||0),ua=+(s.upi_amount||0),due=+(s.due_amount||0),paid=+(s.paid_amount||0);
+    let payLine='',tagColor='#16a34a',tagBg='#f0fdf4';
+    if(due>0){payLine=`<span style="color:#dc2626">Udhar: ${money(due)}</span>`;tagColor='#dc2626';tagBg='#fef2f2';}
+    else if(ca>0&&ua>0){payLine=`<span style="color:#16a34a">💵${money(ca)}</span> + <span style="color:#2563eb">📱${money(ua)}</span>`;tagColor='#2563eb';tagBg='#eff6ff';}
+    else if(ua>0||s.payment_mode==='upi'){payLine=`<span style="color:#2563eb">📱 ${money(ua||paid)}</span>`;tagColor='#2563eb';tagBg='#eff6ff';}
+    else{payLine=`<span style="color:#16a34a">💵 ${money(ca||paid)}</span>`;}
     return `<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:32px;height:32px;font-size:12px;border-radius:8px">${avatarInitial(s.customers?.name||'W')}</div>
-    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')}</div></div></div>
-    <div class="list-item-right"><div class="list-item-amount" style="font-size:14px">${money(s.total)}</div><div style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;background:${tagBg};color:${tagColor}">${tag}</div></div></div>`;}).join(''):'<div class="empty-state"><p>No sales in this range</p></div>'}</div>`;
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub" style="font-size:11px">${payLine}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="font-size:14px">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${new Date(s.created_at).toLocaleDateString('en-IN')}</div></div></div>`;}).join(''):'<div class="empty-state"><p>No sales in this range</p></div>'}</div>`;
 }
 /* -------- Customer Due (Udhaar) -------- */
 async function showCustDue(){
