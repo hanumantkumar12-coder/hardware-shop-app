@@ -291,7 +291,7 @@ const L = {
   inviteNote:"New member? Ask the owner to invite you.",
   googleBtn:"Continue with Google",
   navHome:"Home",navStock:"Stock",navSale:"Sale",navKhata:"Khata",navMore:"More",
-  todaySale:"Today's Sale",monthSale:"This Month",totalUdhaar:"Total Udhaar",lowStock:"Low Stock",
+  todaySale:"Today's Sale",monthSale:"This Month",totalUdhaar:"Customer Udhaar",lowStock:"Low Stock",
   advance:"Advance",totalAdvance:"Total Advance",
   products:"Products",addProduct:"+ Add Product",searchPh:"Search product…",cost:"Cost ₹",sell:"Sell ₹",
   stock:"Stock",minLvl:"Min level",unit:"Unit",barcode:"Barcode",save:"Save",cancel:"Cancel",del:"Delete",
@@ -308,7 +308,7 @@ const L = {
   inviteNote:"नया सदस्य? मालिक Supabase → Auth → Users से invite करे।",
   googleBtn:"Google से जारी रखें",
   navHome:"होम",navStock:"स्टॉक",navSale:"बिक्री",navKhata:"खाता",navMore:"और",
-  todaySale:"आज की बिक्री",monthSale:"इस महीने",totalUdhaar:"कुल उधार",lowStock:"कम स्टॉक",
+  todaySale:"आज की बिक्री",monthSale:"इस महीने",totalUdhaar:"ग्राहक उधार",lowStock:"कम स्टॉक",
   advance:"अग्रिम",totalAdvance:"कुल अग्रिम",
   products:"सामान / स्टॉक",addProduct:"+ नया सामान",searchPh:"सामान खोजें…",cost:"खरीद ₹",sell:"बेच ₹",
   stock:"स्टॉक",minLvl:"मिनि. लेवल",unit:"यूनिट",barcode:"बारकोड",save:"सेव करें",cancel:"रद्द",del:"हटाएं",
@@ -446,25 +446,25 @@ async function rHome(){
       </div>
       <button class="btn gray sm" style="margin-top:8px;width:100%" onclick="event.stopPropagation();editProduct(${prods.findIndex(x=>x.id===p.id)})">✏️ Edit stock</button></div>`).join('')
     :''}
-    ${dueCustomers.length?`<div class="section-header"><span class="section-title" style="color:var(--red)">📒 Udhaar (Due)</span><span class="section-action" onclick="showOutstanding()">View All →</span></div>
+    ${dueCustomers.length?`<div class="section-header"><span class="section-title" style="color:var(--red)">📒 Customer Dues</span><span class="section-action" onclick="showOutstanding()">View All →</span></div>
     <div style="margin-bottom:16px">${dueCustomers.slice(0,5).map(c=>`
       <div class="list-item" onclick="showOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid var(--red)">
         <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}" style="width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(c.name)}</div>
         <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(c.name)}</div><div class="list-item-sub" style="color:var(--red);font-weight:600">Payment pending</div></div></div>
         <div class="list-item-right"><div class="list-item-amount" style="color:var(--red);font-size:14px">${money(c.balance)}</div></div></div>`).join('')}</div>`:''}
-    ${advanceCustomers.length?`<div class="section-header"><span class="section-title" style="color:#1565c0">💵 Customer Advances</span><span class="section-action" onclick="showOutstanding()">View All →</span></div>
+    ${advanceCustomers.length?`<div class="section-header"><span class="section-title" style="color:#1565c0">💵 Advance Received</span><span class="section-action" onclick="showOutstanding()">View All →</span></div>
     <div style="margin-bottom:16px">${advanceCustomers.map(c=>`
       <div class="list-item" onclick="showOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid #1565c0">
         <div class="list-item-left"><div class="avatar" style="background:linear-gradient(135deg,#1565c0,#0d47a1);width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(c.name)}</div>
         <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(c.name)}</div><div class="list-item-sub" style="color:#1565c0;font-weight:600">Advance given</div></div></div>
         <div class="list-item-right"><div class="list-item-amount" style="color:#1565c0;font-size:14px">${money(Math.abs(c.balance))}</div></div></div>`).join('')}</div>`:''}
-    ${dueSuppliers.length?`<div class="section-header"><span class="section-title" style="color:#e65100">🏭 To Pay Suppliers</span><span class="section-action" onclick="showSupplierOutstanding()">View All →</span></div>
+    ${dueSuppliers.length?`<div class="section-header"><span class="section-title" style="color:#e65100">🏭 Supplier Dues</span><span class="section-action" onclick="showSupplierOutstanding()">View All →</span></div>
     <div style="margin-bottom:16px">${dueSuppliers.slice(0,5).map(s=>`
       <div class="list-item" onclick="showSupplierOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid #e65100">
         <div class="list-item-left"><div class="avatar orange" style="width:36px;height:36px;font-size:13px;border-radius:10px">🏭</div>
         <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(s.name)}</div><div class="list-item-sub" style="color:#e65100;font-weight:600">Payment pending</div></div></div>
         <div class="list-item-right"><div class="list-item-amount" style="color:#e65100;font-size:14px">${money(s.balance)}</div></div></div>`).join('')}</div>`:''}
-    ${advanceSuppliers.length?`<div class="section-header"><span class="section-title" style="color:#6a1b9a">💰 Advances to Suppliers</span><span class="section-action" onclick="showSupplierOutstanding()">View All →</span></div>
+    ${advanceSuppliers.length?`<div class="section-header"><span class="section-title" style="color:#6a1b9a">💰 Supplier Advance</span><span class="section-action" onclick="showSupplierOutstanding()">View All →</span></div>
     <div style="margin-bottom:16px">${advanceSuppliers.map(s=>`
       <div class="list-item" onclick="showSupplierOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid #6a1b9a">
         <div class="list-item-left"><div class="avatar" style="background:linear-gradient(135deg,#6a1b9a,#4a148c);width:36px;height:36px;font-size:13px;border-radius:10px">🏭</div>
@@ -961,25 +961,25 @@ async function showOutstanding(){
   const totalSupAdvance=supAdvances.reduce((a,b)=>a+Math.abs(+b.balance),0);
   modal(`<h3>📋 Outstanding</h3>
   <div class="stat-grid" style="margin:12px 0;grid-template-columns:1fr 1fr">
-    <div class="stat-card red" style="padding:12px"><div class="stat-label">We Owe (Suppliers)</div><div class="stat-value" style="font-size:16px">${money(totalSupDue)}</div></div>
-    <div class="stat-card orange" style="padding:12px"><div class="stat-label">Udhaar (Customers)</div><div class="stat-value" style="font-size:16px">${money(totalCustDue)}</div></div>
+    <div class="stat-card red" style="padding:12px"><div class="stat-label">Supplier Dues</div><div class="stat-value" style="font-size:16px">${money(totalSupDue)}</div></div>
+    <div class="stat-card orange" style="padding:12px"><div class="stat-label">Customer Dues</div><div class="stat-value" style="font-size:16px">${money(totalCustDue)}</div></div>
   </div>
-  ${supDues.length?`<div class="menu-label" style="color:#e65100">🏭 To Pay Suppliers (${supDues.length})</div>
+  ${supDues.length?`<div class="menu-label" style="color:#e65100">🏭 Supplier Dues (${supDues.length})</div>
   <div style="max-height:25vh;overflow:auto">${supDues.map(s=>`<div class="list-item" onclick="closeModal();showSupplierDetail(${s.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar orange">🏭</div>
     <div class="list-item-info"><div class="list-item-name">${esc(s.name)}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount" style="color:#e65100">${money(s.balance)}</div></div></div>`).join('')}</div>`:''}
-  ${custDues.length?`<div class="menu-label" style="color:var(--red)">📒 Customer Udhaar (${custDues.length})</div>
+  ${custDues.length?`<div class="menu-label" style="color:var(--red)">📒 Customer Dues (${custDues.length})</div>
   <div style="max-height:25vh;overflow:auto">${custDues.map(c=>`<div class="list-item" onclick="closeModal();showCustDetail(${c.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}">${avatarInitial(c.name)}</div>
     <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount red">${money(c.balance)}</div></div></div>`).join('')}</div>`:''}
-  ${supAdvances.length?`<div class="menu-label" style="color:#6a1b9a">💰 Advance to Suppliers (${supAdvances.length})</div>
+  ${supAdvances.length?`<div class="menu-label" style="color:#6a1b9a">💰 Supplier Advance (${supAdvances.length})</div>
   <div style="max-height:25vh;overflow:auto">${supAdvances.map(s=>`<div class="list-item" onclick="closeModal();showSupplierDetail(${s.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar" style="background:linear-gradient(135deg,#6a1b9a,#4a148c)">🏭</div>
     <div class="list-item-info"><div class="list-item-name">${esc(s.name)}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount" style="color:#6a1b9a">${money(Math.abs(s.balance))}</div></div></div>`).join('')}</div>`:''}
-  ${custAdvances.length?`<div class="menu-label" style="color:#1565c0">💵 Customer Advances (${custAdvances.length})</div>
+  ${custAdvances.length?`<div class="menu-label" style="color:#1565c0">💵 Advance Received (${custAdvances.length})</div>
   <div style="max-height:25vh;overflow:auto">${custAdvances.map(c=>`<div class="list-item" onclick="closeModal();showCustDetail(${c.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar" style="background:linear-gradient(135deg,#1565c0,#0d47a1)">${avatarInitial(c.name)}</div>
     <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div></div>
