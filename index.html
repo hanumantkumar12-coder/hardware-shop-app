@@ -395,17 +395,15 @@ async function rHome(){
   const v=$('v-home');v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
   const today=new Date().toISOString().slice(0,10);
   const month=new Date().toISOString().slice(0,7);
-  const[sales,prods,custs,recentSales,supps]=await Promise.all([
+  const[sales,prods,custs,recentSales]=await Promise.all([
     one(db.from('sales').select('total,due_amount,created_at')),
     one(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock')),
     one(db.from('customers').select('id,name,balance')),
-    one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5)),
-    one(db.from('suppliers').select('id,name,balance'))
+    one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5))
   ]);
   const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
   const mSales=sales.filter(s=>s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
-  const udhaar=custs.filter(c=>+c.balance>0).reduce((a,b)=>a+ +b.balance,0);
-  const advance=custs.filter(c=>+c.balance<0).reduce((a,b)=>a+Math.abs(+b.balance),0);
+  const udhaar=custs.filter(c=>+c.balance>0).reduce((a,b)=>a+ +c.balance,0);
   const low=prods.filter(p=>+(p.current_stock||0)<=+(p.reorder_level||0)&&+(p.reorder_level||0)>0).map(p=>{
     const stock=+(p.current_stock||0);
     const reorder=+(p.reorder_level||0);
@@ -419,12 +417,6 @@ async function rHome(){
   }).sort((a,b)=>a.stock-b.stock);
   const totalProducts=prods.length;
   const userName=meProfile?.name||meProfile?.email||'Owner';
-  const dueCustomers=custs.filter(c=>+c.balance>0).sort((a,b)=>b.balance-a.balance);
-  const advanceCustomers=custs.filter(c=>+c.balance<0).sort((a,b)=>a.balance-b.balance);
-  const dueSuppliers=supps.filter(s=>+s.balance>0).sort((a,b)=>b.balance-a.balance);
-  const advanceSuppliers=supps.filter(s=>+s.balance<0).sort((a,b)=>a.balance-b.balance);
-  const totalSupplierDue=dueSuppliers.reduce((a,s)=>a+ +s.balance,0);
-  const totalSupplierAdvance=advanceSuppliers.reduce((a,s)=>a+Math.abs(+s.balance),0);
   v.innerHTML=`
     <div class="dash-greeting">Hello, <b>${esc(userName)}</b> 👋</div>
     <div class="stat-grid">
@@ -433,44 +425,7 @@ async function rHome(){
       <div class="stat-card orange" onclick="showOutstanding()" style="cursor:pointer"><div class="stat-icon">📒</div><div class="stat-label">${t('totalUdhaar')}</div><div class="stat-value">${money(udhaar)}</div></div>
       <div class="stat-card ${low.length?'red':'green'}" onclick="showPage('stock')" style="cursor:pointer"><div class="stat-icon">${low.length?'⚠️':'✅'}</div><div class="stat-label">${t('lowStock')}</div><div class="stat-value">${low.length}</div></div>
     </div>
-    ${low.length?`<div class="section-header"><span class="section-title" style="color:${low[0]?.urgencyColor||'var(--red)'}">⚠️ ${t('lowStock')} (${low.length})</span><span class="section-action" onclick="showPage('stock')">View All →</span></div>`+low.slice(0,5).map(p=>
-      `<div class="low-stock-item" style="border-left:4px solid ${p.urgencyColor};cursor:pointer;flex-direction:column;align-items:stretch" onclick="editProduct(${prods.findIndex(x=>x.id===p.id)})">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="min-width:36px"><div style="font-size:22px;font-weight:900;color:${p.urgencyColor}">${p.stock}</div><div style="font-size:9px;color:${p.urgencyColor};font-weight:700;text-transform:uppercase">${p.urgencyLabel}</div></div>
-        <div style="flex:1"><div style="font-weight:700;font-size:14px">${esc(p.name)}</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:2px">
-            Min: ${p.reorder} · Need: <b style="color:${p.urgencyColor}">${p.reorderQty} more</b>
-            ${p.purchase_price?' · Cost: '+money(p.purchase_price)+'/'+(p.unit||'pcs'):''}
-          </div></div>
-        <div style="background:${p.urgencyBg};color:${p.urgencyColor};font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px">${p.pct}%</div>
-      </div>
-      <button class="btn gray sm" style="margin-top:8px;width:100%" onclick="event.stopPropagation();editProduct(${prods.findIndex(x=>x.id===p.id)})">✏️ Edit stock</button></div>`).join('')
-    :''}
-    ${dueCustomers.length?`<div class="section-header"><span class="section-title" style="color:var(--red)">📒 Customer Dues</span><span class="section-action" onclick="showOutstanding()">View All →</span></div>
-    <div style="margin-bottom:16px">${dueCustomers.slice(0,5).map(c=>`
-      <div class="list-item" onclick="showOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid var(--red)">
-        <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}" style="width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(c.name)}</div>
-        <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(c.name)}</div><div class="list-item-sub" style="color:var(--red);font-weight:600">Payment pending</div></div></div>
-        <div class="list-item-right"><div class="list-item-amount" style="color:var(--red);font-size:14px">${money(c.balance)}</div></div></div>`).join('')}</div>`:''}
-    ${advanceCustomers.length?`<div class="section-header"><span class="section-title" style="color:#1565c0">💵 Advance Received</span><span class="section-action" onclick="showOutstanding()">View All →</span></div>
-    <div style="margin-bottom:16px">${advanceCustomers.map(c=>`
-      <div class="list-item" onclick="showOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid #1565c0">
-        <div class="list-item-left"><div class="avatar" style="background:linear-gradient(135deg,#1565c0,#0d47a1);width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(c.name)}</div>
-        <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(c.name)}</div><div class="list-item-sub" style="color:#1565c0;font-weight:600">Advance given</div></div></div>
-        <div class="list-item-right"><div class="list-item-amount" style="color:#1565c0;font-size:14px">${money(Math.abs(c.balance))}</div></div></div>`).join('')}</div>`:''}
-    ${dueSuppliers.length?`<div class="section-header"><span class="section-title" style="color:#e65100">🏭 Supplier Dues</span><span class="section-action" onclick="showSupplierOutstanding()">View All →</span></div>
-    <div style="margin-bottom:16px">${dueSuppliers.slice(0,5).map(s=>`
-      <div class="list-item" onclick="showSupplierOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid #e65100">
-        <div class="list-item-left"><div class="avatar orange" style="width:36px;height:36px;font-size:13px;border-radius:10px">🏭</div>
-        <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(s.name)}</div><div class="list-item-sub" style="color:#e65100;font-weight:600">Payment pending</div></div></div>
-        <div class="list-item-right"><div class="list-item-amount" style="color:#e65100;font-size:14px">${money(s.balance)}</div></div></div>`).join('')}</div>`:''}
-    ${advanceSuppliers.length?`<div class="section-header"><span class="section-title" style="color:#6a1b9a">💰 Supplier Advance</span><span class="section-action" onclick="showSupplierOutstanding()">View All →</span></div>
-    <div style="margin-bottom:16px">${advanceSuppliers.map(s=>`
-      <div class="list-item" onclick="showSupplierOutstanding()" style="margin-bottom:6px;cursor:pointer;border-left:3px solid #6a1b9a">
-        <div class="list-item-left"><div class="avatar" style="background:linear-gradient(135deg,#6a1b9a,#4a148c);width:36px;height:36px;font-size:13px;border-radius:10px">🏭</div>
-        <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(s.name)}</div><div class="list-item-sub" style="color:#6a1b9a;font-weight:600">Advance paid</div></div></div>
-        <div class="list-item-right"><div class="list-item-amount" style="color:#6a1b9a;font-size:14px">${money(Math.abs(s.balance))}</div></div></div>`).join('')}</div>`:''}
-    ${recentSales.length?`<div class="section-header"><span class="section-title">🧾 Recent Sales</span><span class="section-action" onclick="showDayBook()">View All →</span></div>
+    ${recentSales.length?`<div class="section-header" style="margin-top:18px"><span class="section-title">🧾 Recent Sales</span><span class="section-action" onclick="showDayBook()">View All →</span></div>
     ${recentSales.map(s=>`<div class="list-item" onclick="showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
       <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(s.customers?.name||'W')}</div>
       <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode}</div></div></div>
