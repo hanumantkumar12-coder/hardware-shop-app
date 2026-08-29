@@ -86,6 +86,12 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 .stat-card.blue .stat-value{color:var(--blue)}
 .stat-card.orange .stat-value{color:var(--orange)}
 .stat-card.red .stat-value{color:var(--red)}
+.stat-card[style*="color:#fff"] .stat-label{color:rgba(255,255,255,.8)}
+.stat-card[style*="color:#fff"] .stat-value{color:#fff}
+.stat-card[style*="color:#fff"] .stat-icon{background:rgba(255,255,255,.2);color:#fff}
+.stat-card.dark .stat-label{color:rgba(255,255,255,.8)}
+.stat-card.dark .stat-value{color:#fff}
+.stat-card.dark .stat-icon{background:rgba(255,255,255,.2);color:#fff}
 
 /* ===== SECTION HEADERS ===== */
 .section-header{display:flex;justify-content:space-between;align-items:center;margin:20px 0 12px}
@@ -423,11 +429,11 @@ async function rHome(){
       <div class="stat-card green" onclick="showDayBook()" style="cursor:pointer"><div class="stat-icon">💰</div><div class="stat-label">${t('todaySale')}</div><div class="stat-value">${money(tSales)}</div></div>
       <div class="stat-card blue" onclick="showDayHistory()" style="cursor:pointer"><div class="stat-icon">📊</div><div class="stat-label">${t('monthSale')}</div><div class="stat-value">${money(mSales)}</div></div>
       <div class="stat-card orange" onclick="showOutstanding()" style="cursor:pointer"><div class="stat-icon">📒</div><div class="stat-label">${t('totalUdhaar')}</div><div class="stat-value">${money(udhaar)}</div></div>
-      <div class="stat-card" style="cursor:pointer;background:linear-gradient(135deg,#1565c0,#0d47a1);color:#fff" onclick="showOutstanding()"><div class="stat-icon">💵</div><div class="stat-label">${t('custAdvance')}</div><div class="stat-value">${money(custAdvance)}</div></div>
-      <div class="stat-card" style="cursor:pointer;background:linear-gradient(135deg,#e65100,#bf360c);color:#fff" onclick="showSupplierOutstanding()"><div class="stat-icon">🏭</div><div class="stat-label">${t('supDues')}</div><div class="stat-value">${money(supDue)}</div></div>
-      <div class="stat-card" style="cursor:pointer;background:linear-gradient(135deg,#6a1b9a,#4a148c);color:#fff" onclick="showSupplierOutstanding()"><div class="stat-icon">💰</div><div class="stat-label">${t('supAdvance')}</div><div class="stat-value">${money(supAdvance)}</div></div>
+      <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#1565c0,#0d47a1)" onclick="showOutstanding()"><div class="stat-icon">💵</div><div class="stat-label">${t('custAdvance')}</div><div class="stat-value">${money(custAdvance)}</div></div>
+      <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#e65100,#bf360c)" onclick="showSupplierOutstanding()"><div class="stat-icon">🏭</div><div class="stat-label">${t('supDues')}</div><div class="stat-value">${money(supDue)}</div></div>
+      <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#6a1b9a,#4a148c)" onclick="showSupplierOutstanding()"><div class="stat-icon">💰</div><div class="stat-label">${t('supAdvance')}</div><div class="stat-value">${money(supAdvance)}</div></div>
       <div class="stat-card ${low.length?'red':'green'}" onclick="showPage('stock')" style="cursor:pointer"><div class="stat-icon">${low.length?'⚠️':'✅'}</div><div class="stat-label">${t('lowStock')}</div><div class="stat-value">${low.length}</div></div>
-      <div class="stat-card" onclick="showPage('stock')" style="cursor:pointer;background:linear-gradient(135deg,#546e7a,#37474f);color:#fff"><div class="stat-icon">📦</div><div class="stat-label">${t('totalItems')}</div><div class="stat-value">${totalProducts}</div></div>
+      <div class="stat-card dark" onclick="showPage('stock')" style="cursor:pointer;background:linear-gradient(135deg,#546e7a,#37474f)"><div class="stat-icon">📦</div><div class="stat-label">${t('totalItems')}</div><div class="stat-value">${totalProducts}</div></div>
     </div>
     ${recentSales.length?`<div class="section-header" style="margin-top:18px"><span class="section-title">🧾 Recent Sales</span><span class="section-action" onclick="showDayBook()">View All →</span></div>
     ${recentSales.map(s=>`<div class="list-item" onclick="showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
