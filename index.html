@@ -995,7 +995,7 @@ async function loadDateRangeSales(){
   const custIds=[...new Set(list.filter(s=>s.customer_id&&+s.due_amount>0).map(s=>s.customer_id))];
   let custPays={};
   if(custIds.length){
-    const pays=await one(db.from('payments').select('customer_id,amount,mode,created_at').in('customer_id',custIds).eq('direction','received').order('created_at')).catch(()=>[]);
+    const pays=await one(db.from('payments').select('customer_id,amount,mode,created_at,note').in('customer_id',custIds).eq('direction','received').order('created_at')).catch(()=>[]);
     (pays||[]).forEach(p=>{
       if(!custPays[p.customer_id])custPays[p.customer_id]=[];
       custPays[p.customer_id].push(p);
@@ -1035,19 +1035,20 @@ async function loadDateRangeSales(){
   <div style="text-align:center;padding:8px;background:#f0fdf4;border-radius:10px;margin-bottom:12px;font-size:13px;font-weight:700;color:#16a34a">Total Bill: ${money(total)}</div>
   <div style="max-height:40vh;overflow:auto">${list.length?list.map(s=>{
     const ca=+(s.cash_amount||0),ua=+(s.upi_amount||0),due=+(s.due_amount||0),paid=+(s.paid_amount||0);
-    let laterPaid=0;
-    if(due>0&&s.customer_id){const pp=custPays[s.customer_id]||[];laterPaid=pp.filter(p=>new Date(p.created_at)>=new Date(s.created_at)).reduce((a,p)=>a+ +p.amount,0);}
+    let laterPaid=0,remark='';
+    if(due>0&&s.customer_id){const pp=custPays[s.customer_id]||[];const lp=pp.filter(p=>new Date(p.created_at)>=new Date(s.created_at));laterPaid=lp.reduce((a,p)=>a+ +p.amount,0);if(lp.length)remark=lp.map(p=>p.note||'').filter(Boolean).join(', ');}
     const remain=Math.max(due-laterPaid,0);
+    const billDate=new Date(s.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
     let payLine='',tagColor='#16a34a',tagBg='#f0fdf4';
-    if(remain<=0&&due>0){payLine=`<span style="color:#16a34a">✅ Paid (was Udhar)</span>`;}
+    if(remain<=0&&due>0){payLine=`<span style="color:#16a34a">✅ Paid</span>`;if(remark)payLine+=` <span style="color:#6b7280">· ${esc(remark)}</span>`;}
     else if(remain>0){payLine=`<span style="color:#dc2626">Udhar: ${money(remain)}</span>`;}
     else if(ca>0&&ua>0){payLine=`<span style="color:#16a34a">💵${money(ca)}</span> + <span style="color:#2563eb">📱${money(ua)}</span>`;}
     else if(ua>0||s.payment_mode==='upi'){payLine=`<span style="color:#2563eb">📱 ${money(ua||paid)}</span>`;}
     else{payLine=`<span style="color:#16a34a">💵 ${money(ca||paid)}</span>`;}
     return `<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:32px;height:32px;font-size:12px;border-radius:8px">${avatarInitial(s.customers?.name||'W')}</div>
-    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub" style="font-size:11px">${payLine}</div></div></div>
-    <div class="list-item-right"><div class="list-item-amount" style="font-size:14px">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${new Date(s.created_at).toLocaleDateString('en-IN')}</div></div></div>`;}).join(''):'<div class="empty-state"><p>No sales in this range</p></div>'}</div>`;
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub" style="font-size:11px">${billDate}</div><div class="list-item-sub" style="font-size:11px">${payLine}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="font-size:14px">${money(s.total)}</div></div></div>`;}).join(''):'<div class="empty-state"><p>No sales in this range</p></div>'}</div>`;
 }
 /* -------- Customer Due (Udhaar) -------- */
 async function showCustDue(){
