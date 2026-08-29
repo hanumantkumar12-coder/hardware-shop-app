@@ -1,4 +1,4 @@
-const CACHE = 'shophisaab-v2';
+const CACHE = 'shophisaab-v3';
 const SHELL = ['./', './index.html', './config.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {

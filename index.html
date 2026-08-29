@@ -333,12 +333,6 @@ function toggleLang(){lang = lang==='en'?'hi':'en';localStorage.setItem('lang',l
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:2});
-/* smart data cache: fast on repeat visits, always fresh after a change or tab refocus */
-const _smart={},_TTL=10000;
-const _cacheGet=k=>{const e=_smart[k];return e&&Date.now()-e.t<_TTL?e.v:null;};
-const _cachePut=(k,v)=>{_smart[k]={t:Date.now(),v};};
-function invalidateCache(){_custCache=[];_prodCache=[];}
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)invalidateCache();});
 const toast=(m)=>{const el=$('toast');el.textContent=m;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200);};
 function modal(html){$('modalContent').innerHTML=html;$('modalOverlay').classList.add('active');}
 function closeModal(){$('modalOverlay').classList.remove('active');}
@@ -459,15 +453,14 @@ async function rStock(){
   loadProducts('');
 }
 window._prods=[];
-let _prodCache=[];
 async function refreshProds(){
-  if(!_prodCache.length)_prodCache=await one(db.from('products').select('*').order('name').limit(300));
-  return _prodCache;
+  window._prods=await one(db.from('products').select('*').order('name').limit(300));
+  return window._prods;
 }
 async function loadProducts(q){
   await refreshProds();
   const k=(q||'').trim().toLowerCase();
-  window._prods=_prodCache.filter(p=>!k||p.name.toLowerCase().includes(k));
+  window._prods=window._prods.filter(p=>!k||p.name.toLowerCase().includes(k));
   $('plist').innerHTML=window._prods.length?window._prods.map((p,i)=>{
     const low=+(p.current_stock||0)<=+(p.reorder_level||0);
     return `<div class="list-item" onclick="editProduct(${i})">
@@ -500,9 +493,9 @@ async function saveProduct(id){
     current_stock:+($('pf-stk').value||0),reorder_level:+($('pf-min').value||0)};
   if(!rec.name)return toast('Name?');
   const q=id?db.from('products').update(rec).eq('id',id):db.from('products').insert(rec);
-  await one(q);closeModal();toast(t('saved'));_prodCache=[];invalidateCache();loadProducts('');render('stock');
+  await one(q);closeModal();toast(t('saved'));loadProducts('');render('stock');
 }
-async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));closeModal();_prodCache=[];invalidateCache();render('stock');}
+async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));closeModal();render('stock');}
 
 /* ================= SALE ================= */
 let cart=[],saleCust=null;
@@ -528,7 +521,7 @@ async function rSale(){
 }
 async function pickItem(){
   await refreshProds();
-  const prods=_prodCache.map(p=>({id:p.id,name:p.name,selling_price:p.selling_price,current_stock:p.current_stock,unit:p.unit}));
+  const prods=window._prods.map(p=>({id:p.id,name:p.name,selling_price:p.selling_price,current_stock:p.current_stock,unit:p.unit}));
   modal(`<h3>${t('addItem')}</h3><div class="search-wrap"><input class="search-bar" placeholder="${t('searchPh')}" oninput="flist(this.value)"></div>
    <div id="picklist" style="max-height:50vh;overflow:auto">${prods.map(ppick).join('')}</div>
    <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
@@ -572,7 +565,7 @@ async function saveCustFromSale(){
     address:$('cf-ad').value.trim()||null,balance:+($('cf-bal').value||0)};
   if(!rec.name)return toast('Name?');
   const data=await one(db.from('customers').insert(rec).select());
-  closeModal();toast(t('saved'));invalidateCache();
+  closeModal();toast(t('saved'));
   const custs=await one(db.from('customers').select('id,name').order('name'));
   const sel=$('sl-cust');
   sel.innerHTML=`<option value="">🚶 ${t('walkIn')}</option>`+custs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
@@ -585,7 +578,7 @@ async function saveSale(){
   const mode=cash>0&&upi>0?'mixed':cash>0?'cash':upi>0?'upi':'credit';
   const items=cart.map(c=>({product_id:c.id,qty:c.qty,unit_price:c.price}));
   const sid=await one(db.rpc('create_sale',{p_customer_id:saleCust?+saleCust:null,p_items:items,p_paid:paid,p_mode:mode}));
-  _prodCache=[];invalidateCache();closeModal&&0;toast(t('saved')+' #'+sid);
+  closeModal&&0;toast(t('saved')+' #'+sid);
   const custName=saleCust?$('sl-cust').selectedOptions[0].textContent:t('walkIn');
   const custObj=saleCust?window._saleCusts?.find(c=>c.id==saleCust):null;
   const cPhone=custObj?.phone||'';const cAddr=custObj?.address||'';
@@ -652,11 +645,10 @@ async function rKhata(){
   loadCusts('');
 }
 window._custs=[];
-let _custCache=[];
 async function loadCusts(q){
-  if(!_custCache.length)_custCache=await one(db.from('customers').select('*').order('balance',{ascending:false}).limit(300));
+  window._custs=await one(db.from('customers').select('*').order('balance',{ascending:false}).limit(300));
   const k=(q||'').trim().toLowerCase();
-  window._custs=_custCache.filter(c=>!k||c.name.toLowerCase().includes(k));
+  window._custs=window._custs.filter(c=>!k||c.name.toLowerCase().includes(k));
   $('clist').innerHTML=window._custs.length?window._custs.map((c,i)=>`
    <div class="list-item" onclick="openKhata(${i})">
      <div class="list-item-left">
@@ -684,7 +676,7 @@ async function saveCust(id){
   else rec.balance=+($('cf-bal').value||0);
   if(!rec.name)return toast('Name?');
   await one(id?db.from('customers').update(rec).eq('id',id):db.from('customers').insert(rec));
-  closeModal();toast(t('saved'));invalidateCache();loadCusts('');
+  closeModal();toast(t('saved'));loadCusts('');
 }
 async function openKhata(i){
   const c=window._custs[i];
@@ -723,7 +715,7 @@ function payModal(cid,i){
 async function savePay(cid,i){
   const amt=+($('py-amt').value||0);if(!amt)return toast('Amount?');
   await one(db.rpc('receive_payment',{p_customer_id:cid,p_amount:amt,p_mode:$('py-mode').value,p_note:$('py-note').value||null}));
-  closeModal();toast(t('saved'));invalidateCache();loadCusts('');
+  closeModal();toast(t('saved'));loadCusts('');
 }
 function waRemind(i){
   const c=window._custs[i];
@@ -734,11 +726,9 @@ function waRemind(i){
 
 /* ================= SUPPLIER OUTSTANDING ================= */
 async function showSupplierOutstanding(){
-  let D=_cacheGet('supout');
-  if(!D){const supps=await one(db.from('suppliers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[]);D={supps:supps||[]};_cachePut('supout',D);}
-  const{supps}=D;
-  const dues=supps.filter(s=>+s.balance>0);
-  const advances=supps.filter(s=>+s.balance<0);
+  const supps=await one(db.from('suppliers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[]);
+  const dues=(supps||[]).filter(s=>+s.balance>0);
+  const advances=(supps||[]).filter(s=>+s.balance<0);
   const totalDue=dues.reduce((a,s)=>a+ +s.balance,0);
   const totalAdvance=advances.reduce((a,s)=>a+Math.abs(+s.balance),0);
   modal(`<h3>🏭 Supplier Outstanding</h3>
@@ -799,7 +789,7 @@ async function saveSupplierPay(sid){
   await one(db.from('payments').insert({direction:'paid',supplier_id:sid,amount:amt,mode:'cash',note:note}));
   const newBal=+s.balance - amt;
   await one(db.from('suppliers').update({balance:newBal}).eq('id',sid));
-  closeModal();toast('Payment saved!');invalidateCache();render('more');
+  closeModal();toast('Payment saved!');render('more');
 }
 
 /* ================= MORE ================= */
@@ -856,7 +846,7 @@ async function showPurchaseHistory(){
 }
 async function purchaseModal(){
   await refreshProds();
-  const prods=_prodCache.map(p=>({id:p.id,name:p.name,purchase_price:p.purchase_price}));
+  const prods=window._prods.map(p=>({id:p.id,name:p.name,purchase_price:p.purchase_price}));
   window._pprods=prods;window._pur=[{pid:prods[0]?.id,qty:1,price:prods[0]?.purchase_price||0}];
   modal(`<h3>${t('newPurchase')}</h3>
   <div class="field"><label>${t('supplier')}</label><input id="pu-sup" placeholder="Supplier name"></div>
@@ -894,22 +884,17 @@ async function savePur(){
   const paid=+($('pu-paid')?.value||0);
   const mode=$('pu-mode')?.value||'cash';
   await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:paid}));
-  closeModal();_prodCache=[];invalidateCache();toast(t('saved')+' — stock updated');render('more');
+  closeModal();toast(t('saved')+' — stock updated');render('more');
 }
 /* -------- Day Book -------- */
 async function showDayBook(){
   const now=new Date();
   const todayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()).toISOString();
   const todayEnd=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).toISOString();
-  let D=_cacheGet('daybook');
-  if(!D){
-    const[sales,pays]=await Promise.all([
-      one(db.from('sales').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')).catch(()=>[]),
-      one(db.from('payments').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')).catch(()=>[])
-    ]);
-    D={sales:sales||[],pays:pays||[]};_cachePut('daybook',D);
-  }
-  const{sales,pays}=D;
+  const[sales,pays]=await Promise.all([
+    one(db.from('sales').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')).catch(()=>[]),
+    one(db.from('payments').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')).catch(()=>[])
+  ]);
   const todayStr=now.toISOString().slice(0,10);
   const cashIn=pays.filter(p=>p.mode==='cash').reduce((a,b)=>a+ +b.amount,0);
   const upiIn=pays.filter(p=>p.mode==='upi').reduce((a,b)=>a+ +b.amount,0);
@@ -936,19 +921,14 @@ async function showDayBook(){
 }
 /* -------- Outstanding -------- */
 async function showOutstanding(){
-  let D=_cacheGet('outstanding');
-  if(!D){
-    const[allCusts,supps]=await Promise.all([
-      one(db.from('customers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[]),
-      one(db.from('suppliers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[])
-    ]);
-    D={allCusts:allCusts||[],supps:supps||[]};_cachePut('outstanding',D);
-  }
-  const{allCusts,supps}=D;
-  const custDues=allCusts.filter(c=>+c.balance>0);
-  const custAdvances=allCusts.filter(c=>+c.balance<0);
-  const supDues=supps.filter(s=>+s.balance>0);
-  const supAdvances=supps.filter(s=>+s.balance<0);
+  const[allCusts,supps]=await Promise.all([
+    one(db.from('customers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[]),
+    one(db.from('suppliers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[])
+  ]);
+  const custDues=(allCusts||[]).filter(c=>+c.balance>0);
+  const custAdvances=(allCusts||[]).filter(c=>+c.balance<0);
+  const supDues=(supps||[]).filter(s=>+s.balance>0);
+  const supAdvances=(supps||[]).filter(s=>+s.balance<0);
   const totalCustDue=custDues.reduce((a,b)=>a+ +b.balance,0);
   const totalCustAdvance=custAdvances.reduce((a,b)=>a+Math.abs(+b.balance),0);
   const totalSupDue=supDues.reduce((a,b)=>a+ +b.balance,0);
@@ -983,16 +963,11 @@ async function showOutstanding(){
 }
 /* -------- Daily Transaction History -------- */
 async function showDayHistory(){
-  let D=_cacheGet('dayhist');
-  if(!D){
-    const[allSales,allPays,allPur]=await Promise.all([
-      one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(500)).catch(()=>[]),
-      one(db.from('payments').select('*,customers(name)').order('created_at',{ascending:false}).limit(500)).catch(()=>[]),
-      one(db.from('purchases').select('*').order('created_at',{ascending:false}).limit(200)).catch(()=>[])
-    ]);
-    D={allSales:allSales||[],allPays:allPays||[],allPur:allPur||[]};_cachePut('dayhist',D);
-  }
-  const{allSales,allPays,allPur}=D;
+  const[allSales,allPays,allPur]=await Promise.all([
+    one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(500)).catch(()=>[]),
+    one(db.from('payments').select('*,customers(name)').order('created_at',{ascending:false}).limit(500)).catch(()=>[]),
+    one(db.from('purchases').select('*').order('created_at',{ascending:false}).limit(200)).catch(()=>[])
+  ]);
   const days={};
   allSales.forEach(s=>{const d=s.created_at.slice(0,10);if(!days[d])days[d]={sales:[],pays:[],purs:[]};days[d].sales.push(s);});
   allPays.forEach(p=>{const d=p.created_at.slice(0,10);if(!days[d])days[d]={sales:[],pays:[],purs:[]};days[d].pays.push(p);});
@@ -1074,15 +1049,22 @@ async function showAudit(){
   <div style="max-height:60vh;overflow:auto"><table class="audit-table"><tr><th>Who</th><th>What</th><th>When</th></tr>
   ${rows.map(r=>`<tr onclick="auditDetail(this)" data-who="${esc(r.actor_name||'?')}" data-action="${esc(r.action)}" data-table="${esc(r.table_name)}" data-rid="${esc(String(r.row_id??''))}" data-old="${r.old_row==null?'null':esc(JSON.stringify(r.old_row))}" data-new="${r.new_row==null?'null':esc(JSON.stringify(r.new_row))}" style="cursor:pointer">
    <td style="font-weight:600">${esc(r.actor_name||'?')}</td>
-   <td><span class="audit-tag ${(r.action||'I')[0]}">${r.action}</span> ${esc(r.table_name)} #${r.row_id??''}</td>
+   <td><span class="audit-tag ${(r.action||'insert').toLowerCase()}">${r.action}</span> ${esc(r.table_name)} #${r.row_id??''}</td>
    <td style="color:var(--text2)">${new Date(r.acted_at).toLocaleString('en-IN')}</td></tr>`).join('')}</table></div>
   <p style="font-size:12px;color:var(--text2);margin-top:8px">Tap a row to see old → new values.</p>
   <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
 }
 function auditDetail(tr){
   const who=tr.dataset.who||'?',action=tr.dataset.action,table=tr.dataset.table,rowId=tr.dataset.rid;
-  const o=tr.dataset.old&&tr.dataset.old!=='null'?JSON.parse(tr.dataset.old):{};
-  const n=tr.dataset.new&&tr.dataset.new!=='null'?JSON.parse(tr.dataset.new):{};
+  let o={},n={};
+  try{
+    const oldRaw=tr.dataset.old;
+    if(oldRaw&&oldRaw!=='null')o=typeof oldRaw==='string'?JSON.parse(oldRaw):oldRaw;
+  }catch(e){}
+  try{
+    const newRaw=tr.dataset.new;
+    if(newRaw&&newRaw!=='null')n=typeof newRaw==='string'?JSON.parse(newRaw):newRaw;
+  }catch(e){}
   const fmt=v=>{if(v===null||v===undefined)return '∅';if(typeof v==='object')return JSON.stringify(v);return String(v);};
   let rowsHtml='';
   if(action==='INSERT'){
