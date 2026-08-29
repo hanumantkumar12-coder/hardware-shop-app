@@ -427,11 +427,11 @@ async function rHome(){
     <div class="dash-greeting">Hello, <b>${esc(userName)}</b> 👋</div>
     <div class="stat-grid">
       <div class="stat-card green" onclick="showDayBook()" style="cursor:pointer"><div class="stat-icon">💰</div><div class="stat-label">${t('todaySale')}</div><div class="stat-value">${money(tSales)}</div></div>
-      <div class="stat-card blue" onclick="showDayHistory()" style="cursor:pointer"><div class="stat-icon">📊</div><div class="stat-label">${t('monthSale')}</div><div class="stat-value">${money(mSales)}</div></div>
-      <div class="stat-card orange" onclick="showOutstanding()" style="cursor:pointer"><div class="stat-icon">📒</div><div class="stat-label">${t('totalUdhaar')}</div><div class="stat-value">${money(udhaar)}</div></div>
-      <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#1565c0,#0d47a1)" onclick="showOutstanding()"><div class="stat-icon">💵</div><div class="stat-label">${t('custAdvance')}</div><div class="stat-value">${money(custAdvance)}</div></div>
-      <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#e65100,#bf360c)" onclick="showSupplierOutstanding()"><div class="stat-icon">🏭</div><div class="stat-label">${t('supDues')}</div><div class="stat-value">${money(supDue)}</div></div>
-      <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#6a1b9a,#4a148c)" onclick="showSupplierOutstanding()"><div class="stat-icon">💰</div><div class="stat-label">${t('supAdvance')}</div><div class="stat-value">${money(supAdvance)}</div></div>
+      <div class="stat-card blue" onclick="showMonthSales()" style="cursor:pointer"><div class="stat-icon">📊</div><div class="stat-label">${t('monthSale')}</div><div class="stat-value">${money(mSales)}</div></div>
+      <div class="stat-card orange" onclick="showCustDue()" style="cursor:pointer"><div class="stat-icon">📒</div><div class="stat-label">${t('totalUdhaar')}</div><div class="stat-value">${money(udhaar)}</div></div>
+      <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#1565c0,#0d47a1)" onclick="showCustAdvance()"><div class="stat-icon">💵</div><div class="stat-label">${t('custAdvance')}</div><div class="stat-value">${money(custAdvance)}</div></div>
+      <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#e65100,#bf360c)" onclick="showSupDue()"><div class="stat-icon">🏭</div><div class="stat-label">${t('supDues')}</div><div class="stat-value">${money(supDue)}</div></div>
+      <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#6a1b9a,#4a148c)" onclick="showSupAdvance()"><div class="stat-icon">💰</div><div class="stat-label">${t('supAdvance')}</div><div class="stat-value">${money(supAdvance)}</div></div>
       <div class="stat-card ${low.length?'red':'green'}" onclick="showPage('stock')" style="cursor:pointer"><div class="stat-icon">${low.length?'⚠️':'✅'}</div><div class="stat-label">${t('lowStock')}</div><div class="stat-value">${low.length}</div></div>
       <div class="stat-card dark" onclick="showPage('stock')" style="cursor:pointer;background:linear-gradient(135deg,#546e7a,#37474f)"><div class="stat-icon">📦</div><div class="stat-label">${t('totalItems')}</div><div class="stat-value">${totalProducts}</div></div>
     </div>
@@ -917,7 +917,73 @@ async function showDayBook(){
     <div class="list-item-right"><div class="list-item-amount green" style="font-size:14px">+${money(p.amount)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:16px"><p>No payments today</p></div>'}</div>
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
 }
-/* -------- Outstanding -------- */
+/* -------- Month Sales -------- */
+async function showMonthSales(){
+  const month=new Date().toISOString().slice(0,7);
+  const sales=await one(db.from('sales').select('*,customers(name)').gte('created_at',month).order('created_at',{ascending:false})).catch(()=>[]);
+  const total=(sales||[]).reduce((a,b)=>a+ +b.total,0);
+  const paid=(sales||[]).reduce((a,b)=>a+ +(b.paid_amount||0),0);
+  const due=(sales||[]).reduce((a,b)=>a+ +b.due_amount,0);
+  modal(`<h3>📊 ${month} — Sales (${(sales||[]).length})</h3>
+  <div class="stat-grid" style="margin:12px 0">
+    <div class="stat-card green" style="padding:12px"><div class="stat-label">Total</div><div class="stat-value" style="font-size:16px">${money(total)}</div></div>
+    <div class="stat-card blue" style="padding:12px"><div class="stat-label">Paid</div><div class="stat-value" style="font-size:16px">${money(paid)}</div></div>
+  </div>
+  <div style="max-height:55vh;overflow:auto">${(sales||[]).length?(sales||[]).map(s=>`<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(s.customers?.name||'W')}</div>
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode.toUpperCase()}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="font-size:14px">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅'}</div></div></div>`).join(''):'<div class="empty-state"><p>No sales this month</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Customer Due (Udhaar) -------- */
+async function showCustDue(){
+  const custs=await one(db.from('customers').select('*').gt('balance',0).order('balance',{ascending:false})).catch(()=>[]);
+  const total=(custs||[]).reduce((a,b)=>a+ +b.balance,0);
+  modal(`<h3>📒 Customer Udhaar (${(custs||[]).length})</h3>
+  <div style="text-align:center;margin:8px 0"><div style="font-size:28px;font-weight:900;color:var(--red)">${money(total)}</div></div>
+  <div style="max-height:55vh;overflow:auto">${(custs||[]).length?(custs||[]).map(c=>`<div class="list-item" onclick="closeModal();showCustDetail(${c.id})" style="margin-bottom:6px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar ${avatarColor(c.name)}">${avatarInitial(c.name)}</div>
+    <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount red">${money(c.balance)}</div></div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">✅</div><p>All settled!</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Customer Advance -------- */
+async function showCustAdvance(){
+  const custs=await one(db.from('customers').select('*').lt('balance',0).order('balance')).catch(()=>[]);
+  const total=(custs||[]).reduce((a,b)=>a+Math.abs(+b.balance),0);
+  modal(`<h3>💵 Customer Advance (${(custs||[]).length})</h3>
+  <div style="text-align:center;margin:8px 0"><div style="font-size:28px;font-weight:900;color:#1565c0">${money(total)}</div></div>
+  <div style="max-height:55vh;overflow:auto">${(custs||[]).length?(custs||[]).map(c=>`<div class="list-item" onclick="closeModal();showCustDetail(${c.id})" style="margin-bottom:6px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar" style="background:linear-gradient(135deg,#1565c0,#0d47a1)">${avatarInitial(c.name)}</div>
+    <div class="list-item-info"><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="color:#1565c0">${money(Math.abs(c.balance))}</div></div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">✅</div><p>No advances</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Supplier Due -------- */
+async function showSupDue(){
+  const supps=await one(db.from('suppliers').select('*').gt('balance',0).order('balance',{ascending:false})).catch(()=>[]);
+  const total=(supps||[]).reduce((a,b)=>a+ +b.balance,0);
+  modal(`<h3>🏭 Supplier Dues (${(supps||[]).length})</h3>
+  <div style="text-align:center;margin:8px 0"><div style="font-size:28px;font-weight:900;color:#e65100">${money(total)}</div></div>
+  <div style="max-height:55vh;overflow:auto">${(supps||[]).length?(supps||[]).map(s=>`<div class="list-item" onclick="closeModal();showSupplierDetail(${s.id})" style="margin-bottom:6px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar orange">🏭</div>
+    <div class="list-item-info"><div class="list-item-name">${esc(s.name)}</div><div class="list-item-sub">${esc(s.phone||'No phone')}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="color:#e65100">${money(s.balance)}</div></div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">✅</div><p>All settled!</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Supplier Advance -------- */
+async function showSupAdvance(){
+  const supps=await one(db.from('suppliers').select('*').lt('balance',0).order('balance')).catch(()=>[]);
+  const total=(supps||[]).reduce((a,b)=>a+Math.abs(+b.balance),0);
+  modal(`<h3>💰 Supplier Advance (${(supps||[]).length})</h3>
+  <div style="text-align:center;margin:8px 0"><div style="font-size:28px;font-weight:900;color:#6a1b9a">${money(total)}</div></div>
+  <div style="max-height:55vh;overflow:auto">${(supps||[]).length?(supps||[]).map(s=>`<div class="list-item" onclick="closeModal();showSupplierDetail(${s.id})" style="margin-bottom:6px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar" style="background:linear-gradient(135deg,#6a1b9a,#4a148c)">🏭</div>
+    <div class="list-item-info"><div class="list-item-name">${esc(s.name)}</div><div class="list-item-sub">${esc(s.phone||'No phone')}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="color:#6a1b9a">${money(Math.abs(s.balance))}</div></div></div>`).join(''):'<div class="empty-state"><div class="empty-icon">✅</div><p>No advances</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Outstanding (More page) -------- */
 async function showOutstanding(){
   const[allCusts,supps]=await Promise.all([
     one(db.from('customers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[]),
