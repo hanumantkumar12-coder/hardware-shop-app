@@ -404,8 +404,10 @@ async function rHome(){
   const v=$('v-home');
   if(!db||!CONFIGURED){v.innerHTML='<div class="empty-state"><div class="empty-icon">⚙️</div><p>Supabase not configured — edit config.js</p></div>';return;}
   try{
-  const today=new Date().toISOString().slice(0,10);
-  const month=new Date().toISOString().slice(0,7);
+  const now=new Date();
+  const todayLocal=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  const monthLocal=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const toLocalDate=iso=>{const d=new Date(iso);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
   v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
   let sales=[],prods=[],custs=[],supps=[],recentSales=[];
   try{sales=await one(db.from('sales').select('total,due_amount,created_at'));}catch(e){console.error('sales',e);}
@@ -414,8 +416,8 @@ async function rHome(){
   try{supps=await one(db.from('suppliers').select('id,name,balance'));}catch(e){console.error('supps',e);}
   try{recentSales=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5));}catch(e){console.error('recentSales',e);}
   sales=sales||[];prods=prods||[];custs=custs||[];supps=supps||[];recentSales=recentSales||[];
-  const tSales=sales.filter(s=>s&&s.created_at).reduce((a,b)=>a+ +b.total,0);
-  const mSales=sales.filter(s=>s&&s.created_at&&s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
+  const tSales=sales.filter(s=>s&&s.created_at&&toLocalDate(s.created_at)===todayLocal).reduce((a,b)=>a+ +b.total,0);
+  const mSales=sales.filter(s=>s&&s.created_at&&toLocalDate(s.created_at).slice(0,7)===monthLocal).reduce((a,b)=>a+ +b.total,0);
   const udhaar=custs.filter(c=>+c.balance>0).reduce((a,b)=>a+ +b.balance,0);
   const custAdvance=custs.filter(c=>+c.balance<0).reduce((a,b)=>a+Math.abs(+b.balance),0);
   const supDue=supps.filter(s=>+s.balance>0).reduce((a,b)=>a+ +b.balance,0);
@@ -432,7 +434,7 @@ async function rHome(){
       <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#1565c0,#0d47a1)" onclick="showCustAdvance()"><div class="stat-icon">💵</div><div class="stat-label">${t('custAdvance')}</div><div class="stat-value">${money(custAdvance)}</div></div>
       <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#e65100,#bf360c)" onclick="showSupDue()"><div class="stat-icon">🏭</div><div class="stat-label">${t('supDues')}</div><div class="stat-value">${money(supDue)}</div></div>
       <div class="stat-card dark" style="cursor:pointer;background:linear-gradient(135deg,#6a1b9a,#4a148c)" onclick="showSupAdvance()"><div class="stat-icon">💰</div><div class="stat-label">${t('supAdvance')}</div><div class="stat-value">${money(supAdvance)}</div></div>
-      <div class="stat-card ${low.length?'red':'green'}" onclick="showPage('stock')" style="cursor:pointer"><div class="stat-icon">${low.length?'⚠️':'✅'}</div><div class="stat-label">${t('lowStock')}</div><div class="stat-value">${low.length}</div></div>
+      <div class="stat-card ${low.length?'red':'green'}" onclick="showLowStock()" style="cursor:pointer"><div class="stat-icon">${low.length?'⚠️':'✅'}</div><div class="stat-label">${t('lowStock')}</div><div class="stat-value">${low.length}</div></div>
       <div class="stat-card dark" onclick="showPage('stock')" style="cursor:pointer;background:linear-gradient(135deg,#546e7a,#37474f)"><div class="stat-icon">📦</div><div class="stat-label">${t('totalItems')}</div><div class="stat-value">${totalProducts}</div></div>
     </div>
     ${recentSales.length?`<div class="section-header" style="margin-top:18px"><span class="section-title">🧾 Recent Sales</span><span class="section-action" onclick="showDayBook()">View All →</span></div>
@@ -468,6 +470,33 @@ async function loadProducts(q){
       </div>
       <div class="list-item-right"><div class="list-item-amount ${low?'red':'green'}">${p.current_stock}</div><div style="font-size:11px;color:var(--text2)">${esc(p.unit||'pcs')}</div></div></div>`;}).join('')
   :`<div class="empty-state"><div class="empty-icon">📦</div><p>${t('noData')}</p></div>`;
+}
+async function showLowStock(){
+  const v=$('v-stock');
+  v.innerHTML='<div class="skeleton" style="height:80px"></div>';
+  const prods=await one(db.from('products').select('*').order('current_stock').limit(300)).catch(()=>[]);
+  const low=(prods||[]).filter(p=>+(p.current_stock||0)<=+(p.reorder_level||0)&&+(p.reorder_level||0)>0);
+  v.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+   <h3 style="font-size:18px">⚠️ Low Stock (${low.length})</h3>
+   <button class="btn green sm" onclick="showPage('stock')" style="width:auto">All Items →</button></div>
+   <div style="max-height:70vh;overflow:auto">${low.length?low.map((p,i)=>{
+    const stock=+(p.current_stock||0);
+    const reorder=+(p.reorder_level||0);
+    const pct=reorder>0?Math.round((stock/reorder)*100):100;
+    let tagColor='#ff9800',tagBg='#fff3e0',tagText='Low';
+    if(stock===0){tagColor='#d32f2f';tagBg='#ffebee';tagText='OUT';}
+    else if(pct<=25){tagColor='#e65100';tagText='Critical';}
+    else if(pct<=50){tagColor='#f57c00';tagText='Warning';}
+    return `<div class="list-item" onclick="editProduct(${i})" style="margin-bottom:6px;cursor:pointer">
+      <div class="list-item-left">
+        <div class="avatar ${avatarColor(p.name)}">${avatarInitial(p.name)}</div>
+        <div class="list-item-info"><div class="list-item-name">${esc(p.name)}</div><div class="list-item-sub">Min: ${reorder} · ${t('sell')} ${money(p.selling_price)}</div></div>
+      </div>
+      <div class="list-item-right">
+        <div style="font-size:18px;font-weight:800;color:${tagColor}">${stock}</div>
+        <div style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;background:${tagBg};color:${tagColor}">${tagText}</div>
+      </div></div>`;}).join(''):'<div class="empty-state"><div class="empty-icon">✅</div><p>All items well stocked!</p></div>'}</div>`;
+  window._prods=(prods||[]).filter(p=>+(p.current_stock||0)<=+(p.reorder_level||0)&&+(p.reorder_level||0)>0);
 }
 function editProduct(i){
   const p=i!=null?window._prods[i]:{};
@@ -511,7 +540,7 @@ async function rSale(){
   </div>
   <div class="total-row"><span>Credit (Udhaar)</span><span id="t-credit" style="color:var(--red)">₹0</span></div>
   <button class="btn green" onclick="saveSale()">${t('saveSale')}</button>
-  <div class="section-header"><span class="section-title">${t('salesHistory')}</span></div><div id="saleslist"></div>`;
+  <div class="section-header"><span class="section-title">${t('salesHistory')}</span><span class="section-action" onclick="showDateRangeSales()">📅 Date Range</span></div><div id="saleslist"></div>`;
   const custs=await one(db.from('customers').select('id,name,phone,address').order('name'));
   window._saleCusts=custs;
   $('sl-cust').innerHTML=`<option value="">🚶 ${t('walkIn')}</option>`+custs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
@@ -814,6 +843,7 @@ function rMore(){
   <div class="menu-label">Reports</div>
   <div class="menu-group">
     <div class="menu-item" onclick="showDayBook()"><div class="menu-icon green">📅</div><div class="menu-text">Day Book (Today)</div><div class="menu-arrow">›</div></div>
+    <div class="menu-item" onclick="showDateRangeSales()"><div class="menu-icon blue">📊</div><div class="menu-text">Sales by Date Range</div><div class="menu-arrow">›</div></div>
     <div class="menu-item" onclick="showDayHistory()"><div class="menu-icon blue">📆</div><div class="menu-text">Daily Transaction History</div><div class="menu-arrow">›</div></div>
     <div class="menu-item" onclick="showBillSearch()"><div class="menu-icon orange">🔍</div><div class="menu-text">Find Bill</div><div class="menu-arrow">›</div></div>
     <div class="menu-item" onclick="showOutstanding()"><div class="menu-icon red">📋</div><div class="menu-text">Outstanding (Udhaar)</div><div class="menu-arrow">›</div></div>
@@ -887,8 +917,9 @@ async function savePur(){
 /* -------- Day Book -------- */
 async function showDayBook(){
   const now=new Date();
-  const todayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()).toISOString();
-  const todayEnd=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).toISOString();
+  const y=now.getFullYear(),m=now.getMonth(),d=now.getDate();
+  const todayStart=new Date(y,m,d).toISOString();
+  const todayEnd=new Date(y,m,d+1).toISOString();
   const[sales,pays]=await Promise.all([
     one(db.from('sales').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')).catch(()=>[]),
     one(db.from('payments').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')).catch(()=>[])
@@ -919,12 +950,16 @@ async function showDayBook(){
 }
 /* -------- Month Sales -------- */
 async function showMonthSales(){
-  const month=new Date().toISOString().slice(0,7);
-  const sales=await one(db.from('sales').select('*,customers(name)').gte('created_at',month).order('created_at',{ascending:false})).catch(()=>[]);
+  const now=new Date();
+  const y=now.getFullYear(),m=now.getMonth();
+  const monthStart=new Date(y,m,1).toISOString();
+  const monthEnd=new Date(y,m+1,1).toISOString();
+  const monthStr=y+'-'+String(m+1).padStart(2,'0');
+  const sales=await one(db.from('sales').select('*,customers(name)').gte('created_at',monthStart).lt('created_at',monthEnd).order('created_at',{ascending:false})).catch(()=>[]);
   const total=(sales||[]).reduce((a,b)=>a+ +b.total,0);
   const paid=(sales||[]).reduce((a,b)=>a+ +(b.paid_amount||0),0);
   const due=(sales||[]).reduce((a,b)=>a+ +b.due_amount,0);
-  modal(`<h3>📊 ${month} — Sales (${(sales||[]).length})</h3>
+  modal(`<h3>📊 ${monthStr} — Sales (${(sales||[]).length})</h3>
   <div class="stat-grid" style="margin:12px 0">
     <div class="stat-card green" style="padding:12px"><div class="stat-label">Total</div><div class="stat-value" style="font-size:16px">${money(total)}</div></div>
     <div class="stat-card blue" style="padding:12px"><div class="stat-label">Paid</div><div class="stat-value" style="font-size:16px">${money(paid)}</div></div>
@@ -934,6 +969,42 @@ async function showMonthSales(){
     <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode.toUpperCase()}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount" style="font-size:14px">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅'}</div></div></div>`).join(''):'<div class="empty-state"><p>No sales this month</p></div>'}</div>
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Date Range Sales -------- */
+function showDateRangeSales(){
+  const today=new Date().toISOString().slice(0,10);
+  const weekAgo=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+  modal(`<h3>📊 Sales by Date Range</h3>
+  <div class="grid2">
+    <div class="field"><label>From</label><input id="dr-from" type="date" value="${weekAgo}"></div>
+    <div class="field"><label>To</label><input id="dr-to" type="date" value="${today}"></div>
+  </div>
+  <button class="btn green" style="margin-top:10px" onclick="loadDateRangeSales()">🔍 Search</button>
+  <div id="dr-results" style="margin-top:14px"><div class="empty-state"><p>Select dates and search</p></div></div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+async function loadDateRangeSales(){
+  const fromStr=$('dr-from').value;
+  const toStr=$('dr-to').value;
+  if(!fromStr||!toStr)return toast('Select both dates');
+  const from=new Date(fromStr+'T00:00:00').toISOString();
+  const to=new Date(toStr+'T23:59:59').toISOString();
+  const sales=await one(db.from('sales').select('*,customers(name)').gte('created_at',from).lte('created_at',to).order('created_at',{ascending:false})).catch(()=>[]);
+  const list=sales||[];
+  const total=list.reduce((a,b)=>a+ +b.total,0);
+  const paid=list.reduce((a,b)=>a+ +(b.paid_amount||0),0);
+  const due=list.reduce((a,b)=>a+ +b.due_amount,0);
+  $('dr-results').innerHTML=`
+  <div class="stat-grid" style="margin-bottom:10px">
+    <div class="stat-card green" style="padding:10px"><div class="stat-label">Total</div><div class="stat-value" style="font-size:14px">${money(total)}</div></div>
+    <div class="stat-card blue" style="padding:10px"><div class="stat-label">Paid</div><div class="stat-value" style="font-size:14px">${money(paid)}</div></div>
+    <div class="stat-card red" style="padding:10px"><div class="stat-label">Due</div><div class="stat-value" style="font-size:14px">${money(due)}</div></div>
+    <div class="stat-card orange" style="padding:10px"><div class="stat-label">Bills</div><div class="stat-value" style="font-size:14px">${list.length}</div></div>
+  </div>
+  <div style="max-height:45vh;overflow:auto">${list.length?list.map(s=>`<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
+    <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:32px;height:32px;font-size:12px;border-radius:8px">${avatarInitial(s.customers?.name||'W')}</div>
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode.toUpperCase()}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount" style="font-size:14px">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅'}</div></div></div>`).join(''):'<div class="empty-state"><p>No sales in this range</p></div>'}</div>`;
 }
 /* -------- Customer Due (Udhaar) -------- */
 async function showCustDue(){
