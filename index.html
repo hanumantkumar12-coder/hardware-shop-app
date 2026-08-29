@@ -485,10 +485,15 @@ async function rStock(){
   loadProducts('');
 }
 window._prods=[];
+let _prodCache=[];
+async function refreshProds(){
+  if(!_prodCache.length)_prodCache=await one(db.from('products').select('*').order('name').limit(300));
+  return _prodCache;
+}
 async function loadProducts(q){
-  let Q=db.from('products').select('*').order('name');
-  if(q)Q=Q.ilike('name','%'+q+'%');
-  window._prods=await one(Q.limit(300));
+  await refreshProds();
+  const k=(q||'').trim().toLowerCase();
+  window._prods=_prodCache.filter(p=>!k||p.name.toLowerCase().includes(k));
   $('plist').innerHTML=window._prods.length?window._prods.map((p,i)=>{
     const low=+(p.current_stock||0)<=+(p.reorder_level||0);
     return `<div class="list-item" onclick="editProduct(${i})">
@@ -521,7 +526,7 @@ async function saveProduct(id){
     current_stock:+($('pf-stk').value||0),reorder_level:+($('pf-min').value||0)};
   if(!rec.name)return toast('Name?');
   const q=id?db.from('products').update(rec).eq('id',id):db.from('products').insert(rec);
-  await one(q);closeModal();toast(t('saved'));loadProducts('');render('stock');
+  await one(q);closeModal();toast(t('saved'));_prodCache=[];loadProducts('');render('stock');
 }
 async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));closeModal();render('stock');}
 
@@ -548,7 +553,8 @@ async function rSale(){
   drawCart();loadSales();
 }
 async function pickItem(){
-  const prods=await one(db.from('products').select('id,name,selling_price,current_stock,unit').order('name'));
+  await refreshProds();
+  const prods=_prodCache.map(p=>({id:p.id,name:p.name,selling_price:p.selling_price,current_stock:p.current_stock,unit:p.unit}));
   modal(`<h3>${t('addItem')}</h3><div class="search-wrap"><input class="search-bar" placeholder="${t('searchPh')}" oninput="flist(this.value)"></div>
    <div id="picklist" style="max-height:50vh;overflow:auto">${prods.map(ppick).join('')}</div>
    <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
@@ -605,7 +611,7 @@ async function saveSale(){
   const mode=cash>0&&upi>0?'mixed':cash>0?'cash':upi>0?'upi':'credit';
   const items=cart.map(c=>({product_id:c.id,qty:c.qty,unit_price:c.price}));
   const sid=await one(db.rpc('create_sale',{p_customer_id:saleCust?+saleCust:null,p_items:items,p_paid:paid,p_mode:mode}));
-  closeModal&&0;toast(t('saved')+' #'+sid);
+  _prodCache=[];closeModal&&0;toast(t('saved')+' #'+sid);
   const custName=saleCust?$('sl-cust').selectedOptions[0].textContent:t('walkIn');
   const custObj=saleCust?window._saleCusts?.find(c=>c.id==saleCust):null;
   const cPhone=custObj?.phone||'';const cAddr=custObj?.address||'';
@@ -872,7 +878,8 @@ async function showPurchaseHistory(){
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
 }
 async function purchaseModal(){
-  const prods=await one(db.from('products').select('id,name,purchase_price').order('name'));
+  await refreshProds();
+  const prods=_prodCache.map(p=>({id:p.id,name:p.name,purchase_price:p.purchase_price}));
   window._pprods=prods;window._pur=[{pid:prods[0]?.id,qty:1,price:prods[0]?.purchase_price||0}];
   modal(`<h3>${t('newPurchase')}</h3>
   <div class="field"><label>${t('supplier')}</label><input id="pu-sup" placeholder="Supplier name"></div>
@@ -910,7 +917,7 @@ async function savePur(){
   const paid=+($('pu-paid')?.value||0);
   const mode=$('pu-mode')?.value||'cash';
   await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:paid}));
-  closeModal();toast(t('saved')+' — stock updated');render('more');
+  closeModal();_prodCache=[];toast(t('saved')+' — stock updated');render('more');
 }
 /* -------- Day Book -------- */
 async function showDayBook(){
