@@ -992,6 +992,15 @@ async function loadDateRangeSales(){
   const to=new Date(toStr+'T23:59:59').toISOString();
   const sales=await one(db.from('sales').select('*,customers(name)').gte('created_at',from).lte('created_at',to).order('created_at',{ascending:false})).catch(()=>[]);
   const list=sales||[];
+  const custIds=[...new Set(list.filter(s=>s.customer_id&&+s.due_amount>0).map(s=>s.customer_id))];
+  let custPays={};
+  if(custIds.length){
+    const pays=await one(db.from('payments').select('customer_id,amount,mode,created_at').in('customer_id',custIds).eq('direction','received').order('created_at')).catch(()=>[]);
+    (pays||[]).forEach(p=>{
+      if(!custPays[p.customer_id])custPays[p.customer_id]=[];
+      custPays[p.customer_id].push(p);
+    });
+  }
   const total=list.reduce((a,b)=>a+ +b.total,0);
   let cash=0,upi=0;
   list.forEach(s=>{
@@ -1000,7 +1009,19 @@ async function loadDateRangeSales(){
     else if(s.payment_mode==='cash')cash+=+(s.paid_amount||0);
     else if(s.payment_mode==='upi')upi+=+(s.paid_amount||0);
   });
-  const credit=list.reduce((a,b)=>a+ +(b.due_amount||0),0);
+  Object.values(custPays).forEach(pp=>pp.forEach(p=>{
+    if(p.mode==='upi')upi+=+p.amount; else cash+=+p.amount;
+  }));
+  let actualCredit=0;
+  list.forEach(s=>{
+    const due=+(s.due_amount||0);
+    if(due<=0)return;
+    const pays=custPays[s.customer_id]||[];
+    const laterPaid=pays.filter(p=>new Date(p.created_at)>=new Date(s.created_at)).reduce((a,p)=>a+ +p.amount,0);
+    const remain=Math.max(due-laterPaid,0);
+    actualCredit+=remain;
+  });
+  const credit=actualCredit;
   const bills=list.length;
   $('dr-results').innerHTML=`
   <div class="stat-grid" style="margin-bottom:6px">
@@ -1014,10 +1035,14 @@ async function loadDateRangeSales(){
   <div style="text-align:center;padding:8px;background:#f0fdf4;border-radius:10px;margin-bottom:12px;font-size:13px;font-weight:700;color:#16a34a">Total Bill: ${money(total)}</div>
   <div style="max-height:40vh;overflow:auto">${list.length?list.map(s=>{
     const ca=+(s.cash_amount||0),ua=+(s.upi_amount||0),due=+(s.due_amount||0),paid=+(s.paid_amount||0);
+    let laterPaid=0;
+    if(due>0&&s.customer_id){const pp=custPays[s.customer_id]||[];laterPaid=pp.filter(p=>new Date(p.created_at)>=new Date(s.created_at)).reduce((a,p)=>a+ +p.amount,0);}
+    const remain=Math.max(due-laterPaid,0);
     let payLine='',tagColor='#16a34a',tagBg='#f0fdf4';
-    if(due>0){payLine=`<span style="color:#dc2626">Udhar: ${money(due)}</span>`;tagColor='#dc2626';tagBg='#fef2f2';}
-    else if(ca>0&&ua>0){payLine=`<span style="color:#16a34a">💵${money(ca)}</span> + <span style="color:#2563eb">📱${money(ua)}</span>`;tagColor='#2563eb';tagBg='#eff6ff';}
-    else if(ua>0||s.payment_mode==='upi'){payLine=`<span style="color:#2563eb">📱 ${money(ua||paid)}</span>`;tagColor='#2563eb';tagBg='#eff6ff';}
+    if(remain<=0&&due>0){payLine=`<span style="color:#16a34a">✅ Paid (was Udhar)</span>`;}
+    else if(remain>0){payLine=`<span style="color:#dc2626">Udhar: ${money(remain)}</span>`;}
+    else if(ca>0&&ua>0){payLine=`<span style="color:#16a34a">💵${money(ca)}</span> + <span style="color:#2563eb">📱${money(ua)}</span>`;}
+    else if(ua>0||s.payment_mode==='upi'){payLine=`<span style="color:#2563eb">📱 ${money(ua||paid)}</span>`;}
     else{payLine=`<span style="color:#16a34a">💵 ${money(ca||paid)}</span>`;}
     return `<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:32px;height:32px;font-size:12px;border-radius:8px">${avatarInitial(s.customers?.name||'W')}</div>
