@@ -291,7 +291,7 @@ const L = {
   inviteNote:"New member? Ask the owner to invite you.",
   googleBtn:"Continue with Google",
   navHome:"Home",navStock:"Stock",navSale:"Sale",navKhata:"Khata",navMore:"More",
-  todaySale:"Today's Sale",monthSale:"This Month",totalUdhaar:"Customer Udhaar",lowStock:"Low Stock",
+  todaySale:"Aaj ki Bikri",monthSale:"Mahine ki Bikri",totalUdhaar:"Customer Udhaar",lowStock:"Low Stock",custAdvance:"Customer Advance",supDues:"Supplier Baki",supAdvance:"Supplier Advance",totalItems:"Total Items",
   advance:"Advance",totalAdvance:"Total Advance",
   products:"Products",addProduct:"+ Add Product",searchPh:"Search product…",cost:"Cost ₹",sell:"Sell ₹",
   stock:"Stock",minLvl:"Min level",unit:"Unit",barcode:"Barcode",save:"Save",cancel:"Cancel",del:"Delete",
@@ -308,7 +308,7 @@ const L = {
   inviteNote:"नया सदस्य? मालिक Supabase → Auth → Users से invite करे।",
   googleBtn:"Google से जारी रखें",
   navHome:"होम",navStock:"स्टॉक",navSale:"बिक्री",navKhata:"खाता",navMore:"और",
-  todaySale:"आज की बिक्री",monthSale:"इस महीने",totalUdhaar:"ग्राहक उधार",lowStock:"कम स्टॉक",
+  todaySale:"आज की बिक्री",monthSale:"इस महीने",totalUdhaar:"ग्राहक उधार",lowStock:"कम स्टॉक",custAdvance:"ग्राहक अग्रिम",supDues:"सप्लायर बाकी",supAdvance:"सप्लायर अग्रिम",totalItems:"कुल सामान",
   advance:"अग्रिम",totalAdvance:"कुल अग्रिम",
   products:"सामान / स्टॉक",addProduct:"+ नया सामान",searchPh:"सामान खोजें…",cost:"खरीद ₹",sell:"बेच ₹",
   stock:"स्टॉक",minLvl:"मिनि. लेवल",unit:"यूनिट",barcode:"बारकोड",save:"सेव करें",cancel:"रद्द",del:"हटाएं",
@@ -395,15 +395,19 @@ async function rHome(){
   const v=$('v-home');v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
   const today=new Date().toISOString().slice(0,10);
   const month=new Date().toISOString().slice(0,7);
-  const[sales,prods,custs,recentSales]=await Promise.all([
+  const[sales,prods,custs,supps,recentSales]=await Promise.all([
     one(db.from('sales').select('total,due_amount,created_at')),
     one(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock')),
     one(db.from('customers').select('id,name,balance')),
+    one(db.from('suppliers').select('id,name,balance')),
     one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5))
   ]);
   const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
   const mSales=sales.filter(s=>s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
   const udhaar=custs.filter(c=>+c.balance>0).reduce((a,b)=>a+ +c.balance,0);
+  const custAdvance=custs.filter(c=>+c.balance<0).reduce((a,b)=>a+Math.abs(+c.balance),0);
+  const supDue=supps.filter(s=>+s.balance>0).reduce((a,b)=>a+ +s.balance,0);
+  const supAdvance=supps.filter(s=>+s.balance<0).reduce((a,b)=>a+Math.abs(+s.balance),0);
   const low=prods.filter(p=>+(p.current_stock||0)<=+(p.reorder_level||0)&&+(p.reorder_level||0)>0).map(p=>{
     const stock=+(p.current_stock||0);
     const reorder=+(p.reorder_level||0);
@@ -423,7 +427,11 @@ async function rHome(){
       <div class="stat-card green" onclick="showDayBook()" style="cursor:pointer"><div class="stat-icon">💰</div><div class="stat-label">${t('todaySale')}</div><div class="stat-value">${money(tSales)}</div></div>
       <div class="stat-card blue" onclick="showDayHistory()" style="cursor:pointer"><div class="stat-icon">📊</div><div class="stat-label">${t('monthSale')}</div><div class="stat-value">${money(mSales)}</div></div>
       <div class="stat-card orange" onclick="showOutstanding()" style="cursor:pointer"><div class="stat-icon">📒</div><div class="stat-label">${t('totalUdhaar')}</div><div class="stat-value">${money(udhaar)}</div></div>
+      <div class="stat-card" style="cursor:pointer;background:linear-gradient(135deg,#1565c0,#0d47a1);color:#fff" onclick="showOutstanding()"><div class="stat-icon">💵</div><div class="stat-label">${t('custAdvance')}</div><div class="stat-value">${money(custAdvance)}</div></div>
+      <div class="stat-card" style="cursor:pointer;background:linear-gradient(135deg,#e65100,#bf360c);color:#fff" onclick="showSupplierOutstanding()"><div class="stat-icon">🏭</div><div class="stat-label">${t('supDues')}</div><div class="stat-value">${money(supDue)}</div></div>
+      <div class="stat-card" style="cursor:pointer;background:linear-gradient(135deg,#6a1b9a,#4a148c);color:#fff" onclick="showSupplierOutstanding()"><div class="stat-icon">💰</div><div class="stat-label">${t('supAdvance')}</div><div class="stat-value">${money(supAdvance)}</div></div>
       <div class="stat-card ${low.length?'red':'green'}" onclick="showPage('stock')" style="cursor:pointer"><div class="stat-icon">${low.length?'⚠️':'✅'}</div><div class="stat-label">${t('lowStock')}</div><div class="stat-value">${low.length}</div></div>
+      <div class="stat-card" onclick="showPage('stock')" style="cursor:pointer;background:linear-gradient(135deg,#546e7a,#37474f);color:#fff"><div class="stat-icon">📦</div><div class="stat-label">${t('totalItems')}</div><div class="stat-value">${totalProducts}</div></div>
     </div>
     ${recentSales.length?`<div class="section-header" style="margin-top:18px"><span class="section-title">🧾 Recent Sales</span><span class="section-action" onclick="showDayBook()">View All →</span></div>
     ${recentSales.map(s=>`<div class="list-item" onclick="showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
