@@ -423,7 +423,7 @@ async function rHome(){
     else if(pct<=25){urgency='critical';urgencyColor='#e65100';urgencyBg='#fff3e0';urgencyLabel='Critical';}
     else if(pct<=50){urgency='warning';urgencyColor='#f57c00';urgencyBg='#fff8e1';urgencyLabel='Warning';}
     return {...p,stock,reorder,pct,reorderQty,urgency,urgencyColor,urgencyBg,urgencyLabel};
-  }).sort((a,b)=>{const order={out:0,critical:1,warning:2,low:3};return order[a.urgency]-order[b.urgency]||a.stock-b.stock;});
+  }).sort((a,b)=>a.stock-b.stock);
   const totalProducts=prods.length;
   const userName=meProfile?.name||meProfile?.email||'Owner';
   const dueCustomers=custs.filter(c=>+c.balance>0).sort((a,b)=>b.balance-a.balance);
