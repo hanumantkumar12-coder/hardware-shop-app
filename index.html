@@ -405,13 +405,13 @@ async function rHome(){
   if(!D){
     v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
     const[sales,prods,custs,supps,recentSales]=await Promise.all([
-      one(db.from('sales').select('total,due_amount,created_at')),
-      one(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock')),
-      one(db.from('customers').select('id,name,balance')),
-      one(db.from('suppliers').select('id,name,balance')),
-      one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5))
+      one(db.from('sales').select('total,due_amount,created_at')).catch(()=>[]),
+      one(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock')).catch(()=>[]),
+      one(db.from('customers').select('id,name,balance')).catch(()=>[]),
+      one(db.from('suppliers').select('id,name,balance')).catch(()=>[]),
+      one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5)).catch(()=>[])
     ]);
-    D={sales,prods,custs,supps,recentSales};_cachePut('home',D);
+    D={sales:sales||[],prods:prods||[],custs:custs||[],supps:supps||[],recentSales:recentSales||[]};_cachePut('home',D);
   }
   const{sales,prods,custs,supps,recentSales}=D;
   const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
@@ -736,7 +736,7 @@ function waRemind(i){
 /* ================= SUPPLIER OUTSTANDING ================= */
 async function showSupplierOutstanding(){
   let D=_cacheGet('supout');
-  if(!D){const supps=await one(db.from('suppliers').select('*').neq('balance',0).order('balance',{ascending:false}));D={supps};_cachePut('supout',D);}
+  if(!D){const supps=await one(db.from('suppliers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[]);D={supps:supps||[]};_cachePut('supout',D);}
   const{supps}=D;
   const dues=supps.filter(s=>+s.balance>0);
   const advances=supps.filter(s=>+s.balance<0);
@@ -905,10 +905,10 @@ async function showDayBook(){
   let D=_cacheGet('daybook');
   if(!D){
     const[sales,pays]=await Promise.all([
-      one(db.from('sales').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')),
-      one(db.from('payments').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at'))
+      one(db.from('sales').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')).catch(()=>[]),
+      one(db.from('payments').select('*,customers(name)').gte('created_at',todayStart).lt('created_at',todayEnd).order('created_at')).catch(()=>[])
     ]);
-    D={sales,pays};_cachePut('daybook',D);
+    D={sales:sales||[],pays:pays||[]};_cachePut('daybook',D);
   }
   const{sales,pays}=D;
   const todayStr=now.toISOString().slice(0,10);
@@ -940,10 +940,10 @@ async function showOutstanding(){
   let D=_cacheGet('outstanding');
   if(!D){
     const[allCusts,supps]=await Promise.all([
-      one(db.from('customers').select('*').neq('balance',0).order('balance',{ascending:false})),
-      one(db.from('suppliers').select('*').neq('balance',0).order('balance',{ascending:false}))
+      one(db.from('customers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[]),
+      one(db.from('suppliers').select('*').neq('balance',0).order('balance',{ascending:false})).catch(()=>[])
     ]);
-    D={allCusts,supps};_cachePut('outstanding',D);
+    D={allCusts:allCusts||[],supps:supps||[]};_cachePut('outstanding',D);
   }
   const{allCusts,supps}=D;
   const custDues=allCusts.filter(c=>+c.balance>0);
@@ -987,11 +987,11 @@ async function showDayHistory(){
   let D=_cacheGet('dayhist');
   if(!D){
     const[allSales,allPays,allPur]=await Promise.all([
-      one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(500)),
-      one(db.from('payments').select('*,customers(name)').order('created_at',{ascending:false}).limit(500)),
-      one(db.from('purchases').select('*').order('created_at',{ascending:false}).limit(200))
+      one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(500)).catch(()=>[]),
+      one(db.from('payments').select('*,customers(name)').order('created_at',{ascending:false}).limit(500)).catch(()=>[]),
+      one(db.from('purchases').select('*').order('created_at',{ascending:false}).limit(200)).catch(()=>[])
     ]);
-    D={allSales,allPays,allPur};_cachePut('dayhist',D);
+    D={allSales:allSales||[],allPays:allPays||[],allPur:allPur||[]};_cachePut('dayhist',D);
   }
   const{allSales,allPays,allPur}=D;
   const days={};
