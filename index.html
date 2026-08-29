@@ -401,20 +401,20 @@ function showPage(v){
 
 /* ================= HOME ================= */
 async function rHome(){
+  try{
   const v=$('v-home');
   const today=new Date().toISOString().slice(0,10);
   const month=new Date().toISOString().slice(0,7);
   let D=_cacheGet('home');
   if(!D){
     v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
-    const[sales,prods,custs,supps,recentSales]=await Promise.all([
-      one(db.from('sales').select('total,due_amount,created_at')).catch(()=>[]),
-      one(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock')).catch(()=>[]),
-      one(db.from('customers').select('id,name,balance')).catch(()=>[]),
-      one(db.from('suppliers').select('id,name,balance')).catch(()=>[]),
-      one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5)).catch(()=>[])
-    ]);
-    D={sales:sales||[],prods:prods||[],custs:custs||[],supps:supps||[],recentSales:recentSales||[]};_cachePut('home',D);
+    let sales=[],prods=[],custs=[],supps=[],recentSales=[];
+    try{sales=await one(db.from('sales').select('total,due_amount,created_at'));}catch(e){}
+    try{prods=await one(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock'));}catch(e){}
+    try{custs=await one(db.from('customers').select('id,name,balance'));}catch(e){}
+    try{supps=await one(db.from('suppliers').select('id,name,balance'));}catch(e){}
+    try{recentSales=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5));}catch(e){}
+    D={sales: sales||[],prods: prods||[],custs: custs||[],supps: supps||[],recentSales: recentSales||[]};_cachePut('home',D);
   }
   const{sales,prods,custs,supps,recentSales}=D;
   const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
@@ -453,6 +453,7 @@ async function rHome(){
       <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(s.customers?.name||'W')}</div>
       <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode}</div></div></div>
       <div class="list-item-right"><div class="list-item-amount" style="font-size:14px;font-weight:800">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅ Paid'}</div></div></div>`).join('')}`:''}`;
+  }catch(e){console.error('rHome error',e);$('v-home').innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><p>Dashboard error — tap another tab and back</p></div>';}
 }
 
 /* ================= STOCK ================= */
@@ -1262,7 +1263,10 @@ async function filterPurchases(){
     <div class="list-item-info"><div class="list-item-name" style="font-size:13px">PUR-${p.id} · ${esc(p.supplier_name||'Unknown')}</div><div class="list-item-sub" style="font-size:11px">${new Date(p.created_at).toLocaleDateString('en-IN')} · ${p.paid?'✅ Paid':'⚠️ Unpaid'}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(p.total)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:10px"><p>No purchases found</p></div>';
 }
-if(CONFIGURED){db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();}
+if(CONFIGURED){
+  window.onerror=(m,s,l,c,e)=>{document.body.innerHTML='<div style="padding:40px;font-family:monospace;color:red"><h2>⚠ JS Error</h2><pre>'+m+'\n'+s+':'+l+':'+c+'</pre></div>';};
+  window.onunhandledrejection=(e)=>{document.body.innerHTML='<div style="padding:40px;font-family:monospace;color:red"><h2>⚠ Unhandled Promise</h2><pre>'+e.reason+'</pre></div>';};
+  db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();}
 else{applyI18n();}
 if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));}
 </script>
