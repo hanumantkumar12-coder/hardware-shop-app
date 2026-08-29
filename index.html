@@ -395,8 +395,9 @@ function showPage(v){
 
 /* ================= HOME ================= */
 async function rHome(){
-  try{
   const v=$('v-home');
+  if(!db||!CONFIGURED){v.innerHTML='<div class="empty-state"><div class="empty-icon">⚙️</div><p>Supabase not configured — edit config.js</p></div>';return;}
+  try{
   const today=new Date().toISOString().slice(0,10);
   const month=new Date().toISOString().slice(0,7);
   v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
@@ -406,23 +407,14 @@ async function rHome(){
   try{custs=await one(db.from('customers').select('id,name,balance'));}catch(e){console.error('custs',e);}
   try{supps=await one(db.from('suppliers').select('id,name,balance'));}catch(e){console.error('supps',e);}
   try{recentSales=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5));}catch(e){console.error('recentSales',e);}
-  const tSales=sales.filter(s=>s.created_at.slice(0,10)===today).reduce((a,b)=>a+ +b.total,0);
-  const mSales=sales.filter(s=>s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
-  const udhaar=custs.filter(c=>+c.balance>0).reduce((a,b)=>a+ +c.balance,0);
-  const custAdvance=custs.filter(c=>+c.balance<0).reduce((a,b)=>a+Math.abs(+c.balance),0);
+  sales=sales||[];prods=prods||[];custs=custs||[];supps=supps||[];recentSales=recentSales||[];
+  const tSales=sales.filter(s=>s&&s.created_at).reduce((a,b)=>a+ +b.total,0);
+  const mSales=sales.filter(s=>s&&s.created_at&&s.created_at.slice(0,7)===month).reduce((a,b)=>a+ +b.total,0);
+  const udhaar=custs.filter(c=>+c.balance>0).reduce((a,b)=>a+ +b.balance,0);
+  const custAdvance=custs.filter(c=>+c.balance<0).reduce((a,b)=>a+Math.abs(+b.balance),0);
   const supDue=supps.filter(s=>+s.balance>0).reduce((a,b)=>a+ +s.balance,0);
   const supAdvance=supps.filter(s=>+s.balance<0).reduce((a,b)=>a+Math.abs(+s.balance),0);
-  const low=prods.filter(p=>+(p.current_stock||0)<=+(p.reorder_level||0)&&+(p.reorder_level||0)>0).map(p=>{
-    const stock=+(p.current_stock||0);
-    const reorder=+(p.reorder_level||0);
-    const pct=reorder>0?Math.round((stock/reorder)*100):100;
-    const reorderQty=Math.max(reorder*2-stock, reorder-stock);
-    let urgency='low', urgencyColor='#ff9800', urgencyBg='#fff3e0', urgencyLabel='Low';
-    if(stock===0){urgency='out';urgencyColor='#d32f2f';urgencyBg='#ffebee';urgencyLabel='OUT OF STOCK';}
-    else if(pct<=25){urgency='critical';urgencyColor='#e65100';urgencyBg='#fff3e0';urgencyLabel='Critical';}
-    else if(pct<=50){urgency='warning';urgencyColor='#f57c00';urgencyBg='#fff8e1';urgencyLabel='Warning';}
-    return {...p,stock,reorder,pct,reorderQty,urgency,urgencyColor,urgencyBg,urgencyLabel};
-  }).sort((a,b)=>a.stock-b.stock);
+  const low=prods.filter(p=>+(p.current_stock||0)<=+(p.reorder_level||0)&&+(p.reorder_level||0)>0);
   const totalProducts=prods.length;
   const userName=meProfile?.name||meProfile?.email||'Owner';
   v.innerHTML=`
@@ -442,7 +434,7 @@ async function rHome(){
       <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:36px;height:36px;font-size:13px;border-radius:10px">${avatarInitial(s.customers?.name||'W')}</div>
       <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub">${new Date(s.created_at).toLocaleDateString('en-IN')} · ${s.payment_mode}</div></div></div>
       <div class="list-item-right"><div class="list-item-amount" style="font-size:14px;font-weight:800">${money(s.total)}</div><div style="font-size:10px;color:#6b7280">${+s.due_amount>0?'⚠ '+money(s.due_amount):'✅ Paid'}</div></div></div>`).join('')}`:''}`;
-  }catch(e){console.error('rHome error',e);$('v-home').innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><p>Dashboard error — tap another tab and back</p></div>';}
+  }catch(e){console.error('rHome error',e);v.innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><p style="color:red;font-size:12px">'+esc(String(e))+'</p></div>';}
 }
 
 /* ================= STOCK ================= */
