@@ -472,6 +472,7 @@ async function loadProducts(q){
   :`<div class="empty-state"><div class="empty-icon">📦</div><p>${t('noData')}</p></div>`;
 }
 async function showLowStock(){
+  showPage('stock');
   const v=$('v-stock');
   v.innerHTML='<div class="skeleton" style="height:80px"></div>';
   const prods=await one(db.from('products').select('*').order('current_stock').limit(300)).catch(()=>[]);
