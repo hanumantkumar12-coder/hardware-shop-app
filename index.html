@@ -248,6 +248,7 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
     <div class="auth-field"><label>Email</label><input id="li-email" type="email" placeholder="owner@gmail.com"></div>
     <div class="auth-field"><label>Password</label><input id="li-pass" type="password" placeholder="••••••••"></div>
     <button class="auth-btn primary" onclick="doLogin()" data-i18n="login">Login</button>
+    <div style="text-align:center;margin-top:10px"><a href="#" onclick="doForgotPass()" style="font-size:13px;color:var(--green);text-decoration:none">Forgot Password?</a></div>
     <div class="auth-divider">OR</div>
     <button class="auth-btn google" onclick="doGoogle()"><img src="https://www.gstatic.com/images/branding/product/1x/gsa_48dp.png" width="18">Continue with Google</button>
     <div class="auth-note">New member? Ask the owner to invite you.</div>
@@ -345,6 +346,7 @@ const toast=(m)=>{const el=$('toast');el.textContent=m;el.classList.add('show');
 function modal(html){$('modalContent').innerHTML=html;$('modalOverlay').classList.add('active');}
 function closeModal(){$('modalOverlay').classList.remove('active');}
 async function one(q){const{data,error}=await q;if(error){toast('⚠ '+error.message);throw error;}return data;}
+function debounce(fn,delay=300){let t;return function(...a){clearTimeout(t);t=setTimeout(()=>fn.apply(this,a),delay);};}
 let current='home', meProfile=null;
 
 /* avatar colors */
@@ -365,6 +367,14 @@ async function doGoogle(){
   const{error}=await db.auth.signInWithOAuth({provider:'google',
     options:{redirectTo:location.origin+location.pathname}});
   if(error)toast('⚠ '+error.message);
+}
+async function doForgotPass(){
+  if(!CONFIGURED)return toast('Edit config.js first!');
+  const email=prompt('Enter your email address:');
+  if(!email)return;
+  const{error}=await db.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+  if(error)return toast('⚠ '+error.message);
+  toast('Password reset email sent! Check your inbox.');
 }
 async function logout(){await db.auth.signOut();location.reload();}
 async function boot(){
@@ -450,7 +460,7 @@ async function rHome(){
 /* ================= STOCK ================= */
 async function rStock(){
   const v=$('v-stock');
-  v.innerHTML=`<div class="search-wrap"><input class="search-bar" placeholder="${t('searchPh')}" oninput="loadProducts(this.value)"></div>
+  v.innerHTML=`<div class="search-wrap"><input class="search-bar" placeholder="${t('searchPh')}" oninput="debounce(()=>loadProducts(this.value))()"></div>
    <button class="fab" title="${t('addProduct')}" onclick="editProduct()">＋</button><div id="plist"></div>`;
   loadProducts('');
 }
@@ -526,6 +536,32 @@ async function saveProduct(id){
   await one(q);closeModal();toast(t('saved'));loadProducts('');render('stock');
 }
 async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));closeModal();render('stock');}
+function adjustStock(i){
+  const p=window._prods[i];
+  modal(`<h3>📦 Adjust Stock: ${esc(p.name)}</h3>
+  <div style="text-align:center;margin:10px 0"><div style="font-size:14px;color:var(--text2)">Current Stock</div><div style="font-size:28px;font-weight:900;color:var(--green)">${p.current_stock} ${esc(p.unit||'pcs')}</div></div>
+  <div class="field"><label>Adjustment Type</label><select id="adj-type"><option value="add">➕ Add Stock</option><option value="remove">➖ Remove Stock</option><option value="set">🔄 Set Exact Count</option></select></div>
+  <div class="field"><label>Quantity</label><input id="adj-qty" type="number" min="0" placeholder="Enter quantity"></div>
+  <div class="field"><label>Reason</label><select id="adj-reason"><option value="stocktake">📋 Stock Take</option><option value="damage">💔 Damaged</option><option value="expired">⏰ Expired</option><option value="return">↩️ Customer Return</option><option value="correction">✏️ Correction</option><option value="other">📝 Other</option></select></div>
+  <div class="field"><label>Note</label><input id="adj-note" placeholder="Optional note"></div>
+  <button class="btn green" onclick="saveAdjustment(${p.id})">✅ Save Adjustment</button>
+  <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+async function saveAdjustment(pid){
+  const type=$('adj-type').value;
+  const qty=+($('adj-qty').value||0);
+  const reason=$('adj-reason').value;
+  const note=$('adj-note').value.trim()||null;
+  if(qty<=0)return toast('Enter quantity');
+  const prod=await one(db.from('products').select('current_stock,name').eq('id',pid).single());
+  let newStock;
+  if(type==='add')newStock=+prod.current_stock+qty;
+  else if(type==='remove')newStock=Math.max(+prod.current_stock-qty,0);
+  else newStock=qty;
+  await one(db.from('products').update({current_stock:newStock,updated_at:new Date().toISOString()}).eq('id',pid));
+  await one(db.from('stock_movements').insert({product_id:pid,qty:type==='remove'?-qty:type==='add'?qty:newStock-(+prod.current_stock),reason:reason,ref_table:'adjustment',ref_id:null}));
+  closeModal();toast('Stock adjusted!');loadProducts('');render('stock');
+}
 
 /* ================= SALE ================= */
 let cart=[],saleCust=null;
@@ -581,6 +617,20 @@ function calcDue(){
   const credit=Math.max(total-cash-upi,0);
   if($('t-credit'))$('t-credit').textContent=money(credit);
 }
+function calcGST(items){
+  let totalGST=0;const gstBreakdown={};
+  items.forEach(item=>{
+    const prod=window._prods?.find(p=>p.id===item.product_id);
+    const rate=prod?.gst_rate||0;
+    if(rate>0){
+      const taxable=(item.qty*item.unit_price);
+      const gst=taxable*rate/100;
+      totalGST+=gst;
+      gstBreakdown[rate]=(gstBreakdown[rate]||0)+gst;
+    }
+  });
+  return{totalGST,gstBreakdown};
+}
 async function addCustFromSale(){
   modal(`<h3>${t('addCust')}</h3>
   <div class="field"><label>Name</label><input id="cf-name" placeholder="Customer name"></div>
@@ -612,7 +662,7 @@ async function saveSale(){
   const custName=saleCust?$('sl-cust').selectedOptions[0].textContent:t('walkIn');
   const custObj=saleCust?window._saleCusts?.find(c=>c.id==saleCust):null;
   const cPhone=custObj?.phone||'';const cAddr=custObj?.address||'';
-  const billLines=cart.map(c=>`${c.name} ×${c.qty} = ₹${(c.qty*c.price).toFixed(0)}`).join('\n');
+  const billLines=cart.map(c=>`${esc(c.name)} ×${c.qty} = ₹${(c.qty*c.price).toFixed(0)}`).join('\n');
   const paySplit=cash>0&&upi>0?`Cash: ₹${cash} + UPI: ₹${upi}`:cash>0?`Cash: ₹${cash}`:upi>0?`UPI: ₹${upi}`:'Credit';
   const bill=`🧾 *Bill #${sid}*\n${custName}\n${billLines}\n*TOTAL: ₹${total.toFixed(0)}*\nPaid: ${paySplit}${paid<total?`\nCredit: ₹${(total-paid).toFixed(0)}`:''}\n— HK Shop Hisaab`;
   const dueAmt=total-paid;
@@ -671,7 +721,7 @@ async function rKhata(){
   const v=$('v-khata');
   v.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
    <h3 style="font-size:18px">${t('customers')}</h3><button class="btn green sm" onclick="editCust()">${t('addCust')}</button></div>
-   <div class="search-wrap"><input class="search-bar" placeholder="${t('searchPh')}" oninput="loadCusts(this.value)"></div><div id="clist"></div>`;
+   <div class="search-wrap"><input class="search-bar" placeholder="${t('searchPh')}" oninput="debounce(()=>loadCusts(this.value))()"></div><div id="clist"></div>`;
   loadCusts('');
 }
 window._custs=[];
@@ -749,7 +799,7 @@ async function savePay(cid,i){
 }
 function waRemind(i){
   const c=window._custs[i];
-  const msg=`Namaste ${c.name} 🙏\nAapka *${money(c.balance)}* baaki hai.\nPayment kar dijiye.\nDhanyavaad!\n— HK Shop Hisaab`;
+  const msg=`Namaste ${esc(c.name)} 🙏\nAapka *${money(c.balance)}* baaki hai.\nPayment kar dijiye.\nDhanyavaad!\n— HK Shop Hisaab`;
   const ph=(c.phone||'').replace(/[^0-9]/g,'');
   window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`,'_blank');
 }
@@ -815,7 +865,6 @@ async function saveSupplierPay(sid){
   const note=$('ps-note')?.value||'';
   const s=await one(db.from('suppliers').select('*').eq('id',sid).single());
   if(!s)return;
-  const isAdvance=+s.balance<=0;
   await one(db.from('payments').insert({direction:'paid',supplier_id:sid,amount:amt,mode:'cash',note:note}));
   const newBal=+s.balance - amt;
   await one(db.from('suppliers').update({balance:newBal}).eq('id',sid));
@@ -842,6 +891,15 @@ function rMore(){
   <div class="menu-label">${t('auditLog')}</div>
   <div class="menu-group">
     <div class="menu-item" onclick="showAudit()" ${(meProfile.role==='owner'||meProfile.role==='partner')?'':'style=opacity:.5'}><div class="menu-icon orange">🕵</div><div class="menu-text">${t('whoChanged')}</div><div class="menu-arrow">›</div></div>
+  </div>
+  <div class="menu-label">Staff</div>
+  <div class="menu-group">
+    <div class="menu-item" onclick="showRoles()"><div class="menu-icon">🛡️</div><div class="menu-text">Staff Roles & Permissions</div><div class="menu-arrow">›</div></div>
+  </div>
+  <div class="menu-label">Expenses</div>
+  <div class="menu-group">
+    <div class="menu-item" onclick="addExpense()"><div class="menu-icon red">💸</div><div class="menu-text">Add Expense</div><div class="menu-arrow">›</div></div>
+    <div class="menu-item" onclick="showExpenses()"><div class="menu-icon orange">📊</div><div class="menu-text">Expense History</div><div class="menu-arrow">›</div></div>
   </div>
   <div class="menu-label">Reports</div>
   <div class="menu-group">
@@ -918,6 +976,69 @@ async function savePur(){
   await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:paid}));
   closeModal();toast(t('saved')+' — stock updated');render('more');
 }
+/* -------- Expenses -------- */
+function addExpense(){
+  const today=new Date().toISOString().slice(0,10);
+  modal(`<h3>💸 Add Expense</h3>
+  <div class="field"><label>Category</label><select id="exp-cat"><option value="Rent">🏠 Rent</option><option value="Electricity">💡 Electricity</option><option value="Salary">👥 Salary</option><option value="Transport">🚚 Transport</option><option value="Maintenance">🔧 Maintenance</option><option value="Other">📦 Other</option></select></div>
+  <div class="field"><label>Amount ₹</label><input id="exp-amt" type="number" placeholder="Enter amount"></div>
+  <div class="field"><label>Description</label><input id="exp-desc" placeholder="What for?"></div>
+  <div class="field"><label>Date</label><input id="exp-date" type="date" value="${today}"></div>
+  <div class="field"><label>Payment Mode</label><select id="exp-mode"><option value="cash">💵 Cash</option><option value="upi">📱 UPI</option><option value="bank">🏦 Bank Transfer</option></select></div>
+  <button class="btn green" onclick="saveExpense()">✅ Save Expense</button>
+  <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+async function saveExpense(){
+  const rec={
+    category:$('exp-cat').value,
+    amount:+($('exp-amt').value||0),
+    description:$('exp-desc').value.trim()||null,
+    expense_date:$('exp-date').value,
+    payment_mode:$('exp-mode').value
+  };
+  if(!rec.amount)return toast('Amount?');
+  await one(db.from('expenses').insert(rec));
+  closeModal();toast('Expense saved!');
+}
+async function showExpenses(){
+  const exps=await one(db.from('expenses').select('*').order('expense_date',{ascending:false}).limit(100));
+  const total=(exps||[]).reduce((a,b)=>a+ +b.amount,0);
+  const catTotals={};
+  (exps||[]).forEach(e=>{catTotals[e.category]=(catTotals[e.category]||0)+ +e.amount;});
+  modal(`<h3>📊 Expenses</h3>
+  <div style="text-align:center;margin:10px 0"><div style="font-size:24px;font-weight:900;color:var(--red)">${money(total)}</div><div style="font-size:12px;color:var(--text2)">Total Expenses</div></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0">${Object.entries(catTotals).map(([cat,amt])=>`<div style="background:#f9fafb;padding:10px;border-radius:10px;text-align:center"><div style="font-size:11px;color:var(--text2)">${cat}</div><div style="font-weight:800;color:var(--red)">${money(amt)}</div></div>`).join('')}</div>
+  <div class="menu-label">Recent (${(exps||[]).length})</div>
+  <div style="max-height:40vh;overflow:auto">${(exps||[]).length?(exps||[]).map(e=>`<div class="list-item" style="margin-bottom:6px">
+    <div class="list-item-left"><div class="avatar red" style="width:32px;height:32px;font-size:12px;border-radius:8px">💸</div>
+    <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(e.category)} · ${esc(e.description||'')}</div><div class="list-item-sub" style="font-size:11px">${new Date(e.expense_date).toLocaleDateString('en-IN')} · ${e.payment_mode}</div></div></div>
+    <div class="list-item-right"><div class="list-item-amount red" style="font-size:14px">${money(e.amount)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:16px"><p>No expenses yet</p></div>'}</div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Staff Roles -------- */
+async function showRoles(){
+  const roles=[
+    {role:'owner',label:'Owner',color:'#dc2626',desc:'Full access. Can manage staff, delete data, and view all reports.',perms:['All access','Manage staff','Delete sales','View audit']},
+    {role:'partner',label:'Partner',color:'#2563eb',desc:'Can manage stock, view reports, and handle all sales operations.',perms:['View all reports','Manage stock','Handle sales','View audit']},
+    {role:'cashier',label:'Cashier',color:'#16a34a',desc:'Can create sales, receive payments, and manage customers.',perms:['Create sales','Receive payments','View customers']},
+    {role:'staff',label:'Staff',color:'#9333ea',desc:'Basic access. Can create sales and view stock only.',perms:['Create sales','View stock']}
+  ];
+  const staffList=window._users||[];
+  modal(`<h3>🛡️ Staff Roles & Permissions</h3>
+  <div style="max-height:25vh;overflow:auto;margin:10px 0">${roles.map(r=>`<div style="background:#f9fafb;padding:10px;border-radius:10px;margin-bottom:8px;border-left:3px solid ${r.color}">
+    <div style="font-weight:700;color:${r.color}">${r.label}</div>
+    <div style="font-size:11px;color:var(--text2);margin:4px 0">${r.desc}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px">${r.perms.map(p=>`<span style="background:${r.color}20;color:${r.color};padding:2px 6px;border-radius:4px;font-size:9px">${p}</span>`).join('')}</div>
+  </div>`).join('')}</div>
+  <div style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:10px">
+    <div style="font-weight:700;margin-bottom:8px">Team Members (${staffList.length})</div>
+    ${staffList.length?staffList.map(u=>`<div class="list-item" style="margin-bottom:6px">
+      <div class="list-item-left"><div class="avatar" style="background:${roles.find(r=>r.role===u.role)?.color||'#6b7280'};width:32px;height:32px;font-size:11px;border-radius:8px">${avatarInitial(u.name||u.email)}</div>
+      <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(u.name||u.email)}</div><div class="list-item-sub" style="font-size:11px;color:${roles.find(r=>r.role===u.role)?.color||'#6b7280'}">${u.role}</div></div></div>
+    </div>`).join(''):'<div style="text-align:center;color:var(--text2);padding:10px;font-size:12px">No team members found</div>'}
+  </div>
+  <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
 /* -------- Day Book -------- */
 async function showDayBook(){
   const now=new Date();
@@ -951,6 +1072,40 @@ async function showDayBook(){
     <div class="list-item-info"><div class="list-item-name" style="font-size:13px">${esc(p.customers?.name||'?')} · ${p.mode==='mixed'?'Cash+UPI':p.mode.toUpperCase()}</div><div class="list-item-sub">${new Date(p.created_at).toLocaleTimeString('en-IN')}</div></div></div>
     <div class="list-item-right"><div class="list-item-amount green" style="font-size:14px">+${money(p.amount)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:16px"><p>No payments today</p></div>'}</div>
   <button class="btn gray" style="margin-top:12px" onclick="closeModal()">${t('cancel')}</button>`);
+}
+/* -------- Sale Return/Void -------- */
+async function returnSale(sid){
+  if(!confirm('⚠️ Are you sure you want to void this sale? This will:\n• Restore all items to stock\n• Remove the customer\'s credit\n• Mark the sale as voided\n\nThis action cannot be undone!'))return;
+  try{
+    const sale=await one(db.from('sales').select('*').eq('id',sid).single());
+    if(!sale)return toast('Sale not found');
+    if(sale.status==='voided')return toast('Sale already voided');
+    const items=await one(db.from('sale_items').select('*').eq('sale_id',sid));
+    // Restore stock for each item
+    for(const item of (items||[])){
+      const prod=await one(db.from('products').select('current_stock').eq('id',item.product_id).single());
+      if(prod){
+        await one(db.from('products').update({current_stock:+prod.current_stock+item.qty,updated_at:new Date().toISOString()}).eq('id',item.product_id));
+        await one(db.from('stock_movements').insert({product_id:item.product_id,qty:item.qty,reason:'return',ref_table:'sale',ref_id:sid}));
+      }
+    }
+    // Update customer balance if credit sale
+    if(+sale.due_amount>0 && sale.customer_id){
+      const cust=await one(db.from('customers').select('balance').eq('id',sale.customer_id).single());
+      if(cust){
+        await one(db.from('customers').update({balance:+cust.balance- +sale.due_amount}).eq('id',sale.customer_id));
+      }
+    }
+    // Mark sale as voided
+    await one(db.from('sales').update({status:'voided',due_amount:0,updated_at:new Date().toISOString()}).eq('id',sid));
+    // Update audit
+    await one(db.from('audit_log').insert({action:'SALE_VOIDED',table_name:'sales',record_id:sid,old_data:sale,new_data:{...sale,status:'voided'}}));
+    closeModal();toast('Sale voided & stock restored!');
+  }catch(e){toast('Error: '+e.message);}
+}
+function addReturnButton(sid,status){
+  if(status==='voided')return '<div style="background:#fef2f2;color:#dc2626;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-top:4px">VOIDED</div>';
+  return `<button class="btn red sm" onclick="returnSale(${sid})" style="margin-top:8px;font-size:11px;padding:4px 10px">↩️ Return/Void</button>`;
 }
 /* -------- Month Sales -------- */
 async function showMonthSales(){
@@ -1390,18 +1545,20 @@ async function showBill(saleId){
   const cust=sale.customers||{};const sid=sale.invoice_no||sale.id;
   const total=+sale.total;const paid=+(sale.paid_amount||0);const due=+sale.due_amount||0;
   const mode=sale.payment_mode||'cash';
-  const paid=+(sale.paid_amount||0);const due=+(sale.due_amount||0);
   const paySplit=mode==='mixed'?'Cash+UPI':mode==='upi'?'UPI':mode==='credit'?'Credit':'Cash';
   const itemsHtml=(items||[]).map((c,i)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${i+1}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${esc(c.products?.name||'Item')}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:center;font-size:12px">${c.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:12px">₹${+(c.unit_price||0).toFixed(2)}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;font-size:12px">₹${((c.qty)*(c.unit_price||0)).toFixed(2)}</td></tr>`).join('');
+  const gstData=calcGST(items||[]);
+  const gstRows=Object.entries(gstData.gstBreakdown).map(([rate,amount])=>`<tr><td colspan="4" style="padding:4px 10px;text-align:right;font-size:12px;color:#6b7280">CGST @${rate/2}%</td><td style="padding:4px 10px;text-align:right;font-size:12px">₹${(amount/2).toFixed(2)}</td></tr><tr><td colspan="4" style="padding:4px 10px;text-align:right;font-size:12px;color:#6b7280">SGST @${rate/2}%</td><td style="padding:4px 10px;text-align:right;font-size:12px">₹${(amount/2).toFixed(2)}</td></tr>`).join('');
   const billText=`🧾 *Bill #${sid}*\n${esc(cust.name||'Walk-in')}\n${(items||[]).map(c=>`${esc(c.products?.name||'Item')} × ${c.qty} = ₹${((c.qty)*(c.unit_price||0)).toFixed(0)}`).join('\n')}\n*TOTAL: ₹${total.toFixed(0)}*\nPaid: ${paySplit}${due>0?`\nCredit: ₹${due.toFixed(0)}`:''}\n— HK Shop Hisaab`;
   const now=new Date(sale.created_at);
   modal(`<div id="bill-modal" style="position:relative">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <h3 style="margin:0">🧾 Bill #${sid}</h3>
+    <h3 style="margin:0">🧾 Bill #${sid} ${sale.status==='voided'?'<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:12px">VOIDED</span>':''}</h3>
     <div style="display:flex;gap:6px;align-items:center">
       <button class="btn green" onclick="window.open('https://wa.me/?text=${encodeURIComponent(billText)}','_blank')" title="Share on WhatsApp">📲</button>
       <button class="btn blue" onclick="printInvoice()" title="Print">🖨</button>
       <button class="btn orange" onclick="downloadPDF(${sid})" title="Save PDF">📄</button>
+      ${sale.status!=='voided'?`<button class="btn red sm" onclick="returnSale(${sid})" title="Return/Void" style="font-size:11px">↩️ Void</button>`:''}
       <button class="btn gray sm" onclick="closeModal()" style="font-size:18px;padding:4px 12px">✕</button>
     </div>
   </div>
@@ -1418,6 +1575,7 @@ async function showBill(saleId){
       <thead><tr style="background:#1a8917;color:#fff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700">#</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700">Item</th><th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:700">Qty</th><th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700">Rate</th><th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700">Amount</th></tr></thead>
       <tbody>${itemsHtml}</tbody>
       <tfoot><tr style="border-top:2px solid #1a8917"><td colspan="4" style="padding:10px;text-align:right;font-size:13px;font-weight:800">SUBTOTAL</td><td style="padding:10px;text-align:right;font-size:13px;font-weight:800">₹${total.toFixed(2)}</td></tr>
+      ${gstRows}
       ${due>0?`<tr><td colspan="4" style="padding:6px 10px;text-align:right;font-size:12px;color:#16a34a">Paid</td><td style="padding:6px 10px;text-align:right;font-size:12px;color:#16a34a;font-weight:700">₹${paid.toFixed(2)}</td></tr>
       <tr style="background:#fef2f2"><td colspan="4" style="padding:8px 10px;text-align:right;font-size:14px;font-weight:900;color:#dc2626">TOTAL DUE</td><td style="padding:8px 10px;text-align:right;font-size:16px;font-weight:900;color:#dc2626">₹${due.toFixed(2)}</td></tr>`
       :`<tr style="background:#f0fdf4"><td colspan="4" style="padding:10px;text-align:right;font-size:14px;font-weight:900;color:#16a34a">TOTAL PAID</td><td style="padding:10px;text-align:right;font-size:16px;font-weight:900;color:#16a34a">₹${total.toFixed(2)}</td></tr>`}</tfoot>
@@ -1432,10 +1590,10 @@ async function showBill(saleId){
 /* ===== BILL SEARCH ===== */
 async function showBillSearch(){
   modal(`<h3>🔍 Find Bill</h3>
-  <div class="field"><label>Search by Invoice # or Customer Name</label><input id="bill-search" placeholder="e.g. 7 or Ramesh" oninput="filterBills()"></div>
+  <div class="field"><label>Search by Invoice # or Customer Name</label><input id="bill-search" placeholder="e.g. 7 or Ramesh" oninput="debounce(()=>filterBills())()"></div>
   <div id="bill-results" style="max-height:35vh;overflow:auto;margin-top:8px"><div style="text-align:center;color:#6b7280;padding:20px">Type to search...</div></div>
   <div style="margin-top:12px;border-top:1px solid #e5e7eb;padding-top:12px">
-    <div class="field"><label>Search Purchase by Supplier</label><input id="pur-search" placeholder="e.g. PaintSupplier" oninput="filterPurchases()"></div>
+    <div class="field"><label>Search Purchase by Supplier</label><input id="pur-search" placeholder="e.g. PaintSupplier" oninput="debounce(()=>filterPurchases())()"></div>
     <div id="pur-results" style="max-height:25vh;overflow:auto;margin-top:8px"><div style="text-align:center;color:#6b7280;padding:10px">Type to search...</div></div>
   </div>
   <button class="btn gray" style="margin-top:10px" onclick="closeModal()">${t('cancel')}</button>`);
@@ -1465,7 +1623,22 @@ async function filterPurchases(){
     <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(p.total)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:10px"><p>No purchases found</p></div>';
 }
 if(CONFIGURED){
-  db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();}
+  db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();
+  /* Session timeout - 15 min idle */
+  let _sessionTimer;
+  function resetSessionTimer(){
+    clearTimeout(_sessionTimer);
+    _sessionTimer=setTimeout(async()=>{
+      if(db&&db.auth){
+        await db.auth.signOut();
+        toast('Session expired due to inactivity');
+        location.reload();
+      }
+    },15*60*1000);
+  }
+  ['click','keypress','scroll','mousemove'].forEach(evt=>document.addEventListener(evt,resetSessionTimer));
+  resetSessionTimer();
+}
 else{applyI18n();}
 if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').then(reg=>reg.update()));}
 </script>
