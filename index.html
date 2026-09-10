@@ -1007,10 +1007,10 @@ async function loadDateRangeSales(){
   const total=list.reduce((a,b)=>a+ +b.total,0);
   let cash=0,upi=0;
   list.forEach(s=>{
-    const ca=+(s.cash_amount||0),ua=+(s.upi_amount||0);
-    if(ca>0||ua>0){cash+=ca;upi+=ua;}
-    else if(s.payment_mode==='cash')cash+=+(s.paid_amount||0);
-    else if(s.payment_mode==='upi')upi+=+(s.paid_amount||0);
+    const paid=+(s.paid_amount||0);
+    if(s.payment_mode==='cash')cash+=paid;
+    else if(s.payment_mode==='upi')upi+=paid;
+    else if(s.payment_mode==='mixed'){cash+=paid*0.5;upi+=paid*0.5;}
   });
   Object.values(custPays).forEach(pp=>pp.forEach(p=>{
     if(p.mode==='upi')upi+=+p.amount; else cash+=+p.amount;
@@ -1037,7 +1037,7 @@ async function loadDateRangeSales(){
   </div>
   <div style="text-align:center;padding:8px;background:#f0fdf4;border-radius:10px;margin-bottom:12px;font-size:13px;font-weight:700;color:#16a34a">Total Bill: ${money(total)}</div>
   <div style="max-height:40vh;overflow:auto">${list.length?list.map(s=>{
-    const ca=+(s.cash_amount||0),ua=+(s.upi_amount||0),due=+(s.due_amount||0),paid=+(s.paid_amount||0);
+    const due=+(s.due_amount||0),paid=+(s.paid_amount||0);
     let laterPaid=0,remark='';
     if(due>0&&s.customer_id){const pp=custPays[s.customer_id]||[];const lp=pp.filter(p=>new Date(p.created_at)>=new Date(s.created_at));laterPaid=lp.reduce((a,p)=>a+ +p.amount,0);if(lp.length)remark=lp.map(p=>p.note||'').filter(Boolean).join(', ');}
     const remain=Math.max(due-laterPaid,0);
@@ -1045,9 +1045,9 @@ async function loadDateRangeSales(){
     let payLine='',tagColor='#16a34a',tagBg='#f0fdf4';
     if(remain<=0&&due>0){payLine=`<span style="color:#16a34a">✅ Paid</span>`;if(remark)payLine+=` <span style="color:#6b7280">· ${esc(remark)}</span>`;}
     else if(remain>0){payLine=`<span style="color:#dc2626">Udhar: ${money(remain)}</span>`;}
-    else if(ca>0&&ua>0){payLine=`<span style="color:#16a34a">💵${money(ca)}</span> + <span style="color:#2563eb">📱${money(ua)}</span>`;}
-    else if(ua>0||s.payment_mode==='upi'){payLine=`<span style="color:#2563eb">📱 ${money(ua||paid)}</span>`;}
-    else{payLine=`<span style="color:#16a34a">💵 ${money(ca||paid)}</span>`;}
+    else if(s.payment_mode==='mixed'){payLine=`<span style="color:#16a34a">💵+📱 ${money(paid)}</span>`;}
+    else if(s.payment_mode==='upi'){payLine=`<span style="color:#2563eb">📱 ${money(paid)}</span>`;}
+    else{payLine=`<span style="color:#16a34a">💵 ${money(paid)}</span>`;}
     return `<div class="list-item" onclick="closeModal();showBill(${s.id})" style="margin-bottom:6px;cursor:pointer">
     <div class="list-item-left"><div class="avatar ${avatarColor(s.customers?.name||'W')}" style="width:32px;height:32px;font-size:12px;border-radius:8px">${avatarInitial(s.customers?.name||'W')}</div>
     <div class="list-item-info"><div class="list-item-name" style="font-size:13px">#${s.invoice_no||s.id} · ${esc(s.customers?.name||'Walk-in')}</div><div class="list-item-sub" style="font-size:11px">${billDate}</div><div class="list-item-sub" style="font-size:11px">${payLine}</div></div></div>
@@ -1358,7 +1358,7 @@ async function showPurchaseBill(pid){
       <div style="text-align:right"><div style="font-size:26px;font-weight:900;color:#2563eb">PURCHASE BILL</div><div style="font-size:12px;color:#6b7280;margin-top:3px"><b>Bill #:</b> PUR-${p.id}</div><div style="font-size:12px;color:#6b7280"><b>Date:</b> ${now.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div></div>
     </div>
     <div style="display:flex;gap:16px;margin-bottom:14px">
-      <div style="flex:1;background:#eff6ff;border-radius:10px;padding:10px 12px;border:1px solid #bfdbfe"><div style="font-size:10px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Supplier</div><div style="font-size:15px;font-weight:800">${esc(p.supplier_name||'Unknown')}</div>${p.supplier_phone?`<div style="font-size:12px;color:#6b7280;margin-top:2px">📞 ${esc(p.supplier_phone)}</div>`:''}</div>
+      <div style="flex:1;background:#eff6ff;border-radius:10px;padding:10px 12px;border:1px solid #bfdbfe"><div style="font-size:10px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Supplier</div><div style="font-size:15px;font-weight:800">${esc(p.supplier_name||'Unknown')}</div></div>
       <div style="flex:1;background:${p.paid?'#f0fdf4':'#fef2f2'};border-radius:10px;padding:10px 12px;border:1px solid ${p.paid?'#bbf7d0':'#fecaca'}"><div style="font-size:10px;font-weight:700;color:${p.paid?'#16a34a':'#dc2626'};text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Payment</div><div style="font-size:13px"><b>Total:</b> ₹${+p.total}</div><div style="font-size:13px"><b>Status:</b> <span style="color:${p.paid?'#16a34a':'#dc2626'};font-weight:700">${p.paid?'✅ PAID':'⚠️ UNPAID'}</span></div></div>
     </div>
     <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
@@ -1389,8 +1389,9 @@ async function showBill(saleId){
   const items=await one(db.from('sale_items').select('*, products(name)').eq('sale_id',saleId));
   const cust=sale.customers||{};const sid=sale.invoice_no||sale.id;
   const total=+sale.total;const paid=+(sale.paid_amount||0);const due=+sale.due_amount||0;
-  const cash=+(sale.cash_amount||0);const upi=+(sale.upi_amount||0);
-  const paySplit=cash>0&&upi>0?`Cash: ₹${cash} + UPI: ₹${upi}`:cash>0?`Cash: ₹${cash}`:upi>0?`UPI: ₹${upi}`:(sale.payment_mode||'Credit');
+  const mode=sale.payment_mode||'cash';
+  const paid=+(sale.paid_amount||0);const due=+(sale.due_amount||0);
+  const paySplit=mode==='mixed'?'Cash+UPI':mode==='upi'?'UPI':mode==='credit'?'Credit':'Cash';
   const itemsHtml=(items||[]).map((c,i)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${i+1}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px">${esc(c.products?.name||'Item')}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:center;font-size:12px">${c.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-size:12px">₹${+(c.unit_price||0).toFixed(2)}</td><td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;text-align:right;font-weight:600;font-size:12px">₹${((c.qty)*(c.unit_price||0)).toFixed(2)}</td></tr>`).join('');
   const billText=`🧾 *Bill #${sid}*\n${esc(cust.name||'Walk-in')}\n${(items||[]).map(c=>`${esc(c.products?.name||'Item')} × ${c.qty} = ₹${((c.qty)*(c.unit_price||0)).toFixed(0)}`).join('\n')}\n*TOTAL: ₹${total.toFixed(0)}*\nPaid: ${paySplit}${due>0?`\nCredit: ₹${due.toFixed(0)}`:''}\n— HK Shop Hisaab`;
   const now=new Date(sale.created_at);
