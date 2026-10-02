@@ -37,7 +37,8 @@
     if(code==='auth/unauthorized-domain')
       return 'This website domain is not allowed. Add it in Firebase Console → Authentication → Settings → Authorized domains.';
     if(code==='auth/popup-blocked')return 'Popup blocked — allow popups for this site';
-    if(code==='auth/cancelled-popup-request'||code==='auth/popup-closed-without-complete')return 'Sign-in cancelled';
+    if(code==='auth/popup-closed-by-user'||code==='auth/cancelled-popup-request'||code==='auth/popup-closed-without-complete')return 'Sign-in cancelled';
+    if(code==='auth/operation-not-allowed')return 'This sign-in method is turned off in Firebase Console';
     return m.replace(/^Firebase:\s*/,'')||'Login failed';
   }
 
@@ -586,11 +587,20 @@
       if(!FB_CONFIGURED)return{data:null,error:{message:'Firebase not configured'}};
       if(!opts||opts.provider!=='google')
         return{data:null,error:{message:'Only Google sign-in is supported'}};
+      const provider=new firebase.auth.GoogleAuthProvider();
       try{
-        const provider=new firebase.auth.GoogleAuthProvider();
         const c=await fbAuth.signInWithPopup(provider);
         return{data:{user:c.user},error:null};
-      }catch(e){return{data:null,error:{message:authErr(e),code:e.code}};}
+      }catch(e){
+        if(e.code==='auth/popup-blocked'){
+          try{
+            await fbAuth.signInWithRedirect(provider);
+            return{data:null,error:null};
+          }catch(e2){
+            return{data:null,error:{message:authErr(e2)||'Popup blocked — allow popups for this site',code:e2.code}};
+          }
+        }
+        return{data:null,error:{message:authErr(e),code:e.code}};}
     }
   };
 

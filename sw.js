@@ -1,4 +1,4 @@
-const CACHE = 'shophisaab-v8';
+const CACHE = 'shophisaab-v9';
 const SHELL = ['./config.js', './firebase-sync.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {
