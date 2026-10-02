@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=14"></script>
-<script src="firebase-sync.js?v=14"></script>
+<script src="config.js?v=15"></script>
+<script src="firebase-sync.js?v=15"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -380,6 +380,8 @@ function renderTraceBanner(){
     if(tr.loadHistory&&tr.loadHistory.length)out.push('page loads: '+tr.loadHistory.join('  →  '));
     if(tr.fbstore!==undefined)out.push('firebase localStorage: '+tr.fbstore);
     if(tr.idbDbs!==undefined)out.push('firebase IDB dbs: '+tr.idbDbs);
+    if(tr.msgs)out.push('auth messages: '+tr.msgs);
+    if(tr.iframes)out.push('auth iframes: '+tr.iframes);
     if(tr.ss)out.push('sessionStorage: '+tr.ss);
     if(tr.idb)out.push('indexedDB: '+tr.idb);
     let extra='';
@@ -1678,13 +1680,13 @@ if(CONFIGURED){
   try{
     fbAuth.getRedirectResult().then(r=>{
       const v=(r&&r.error)?('ERR '+(r.error.code||r.error.message)):(r&&r.user?('user:'+(r.user.email||r.user.uid)):'no-user-no-error');
-      try{atr('rr',v);}catch(_){}
+      try{atr('rr',v+' @'+(performance.now()/1000).toFixed(1)+'s');}catch(_){}
       if(r&&r.error){
         const m=((r.error.message)||String(r.error.code||'error')).replace(/^Firebase:\s*/,'');
         showAuthErr('Google sign-in failed: '+m);
       }else if(r&&r.user&&!meProfile){boot();}
       renderTraceBanner();
-    }).catch(e=>{try{atr('rr','ERR '+((e&&e.message)||e));}catch(_){}renderTraceBanner();});
+    }).catch(e=>{try{atr('rr','ERR '+((e&&e.message)||e)+' @'+(performance.now()/1000).toFixed(1)+'s');}catch(_){}renderTraceBanner();});
   }catch(e){}
   renderTraceBanner();
   setTimeout(renderTraceBanner,2500);

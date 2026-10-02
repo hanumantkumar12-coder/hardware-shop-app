@@ -35,7 +35,7 @@
   try{
     var t0=JSON.parse(localStorage.getItem('authTrace')||'{}');
     t0.loadHistory=t0.loadHistory||[];
-    t0.loadHistory.push((new Date()).toISOString().slice(11,19)+(location.search||''));
+    t0.loadHistory.push((new Date()).toISOString().slice(11,19)+' '+location.href.replace('https://hanumantkumar12-coder.github.io/hardware-shop-app',''));
     if(t0.loadHistory.length>6)t0.loadHistory=t0.loadHistory.slice(-6);
     localStorage.setItem('authTrace',JSON.stringify(t0));
   }catch(e){}
@@ -51,6 +51,35 @@
         window.atr('idbDbs',f.length?f.join(','):'none');
       }).catch(function(){});
     }
+  }catch(e){}
+  // auth event relay observability — iframe + postMessage from __/auth/handler
+  try{
+    var _msgs=[],_ifs=[];
+    window.addEventListener('message',function(ev){
+      try{
+        var d=ev.data,tag='';
+        if(d&&typeof d==='object')tag=':'+(d.eventType||d.type||'obj');
+        else if(typeof d==='string')tag=':str';
+        var o=String(ev.origin||'').replace(/^https?:\/\//,'');
+        _msgs.push(o+tag);if(_msgs.length>7)_msgs.shift();
+        window.atr('msgs',_msgs.join(' ~ '));
+      }catch(e){}
+    });
+    var _noteI=function(src){
+      try{
+        if(!src)return;
+        var s=String(src).replace(/^https?:\/\//,'');
+        _ifs.push(s.substring(0,70));if(_ifs.length>4)_ifs.shift();
+        window.atr('iframes',_ifs.join(' ~ '));
+      }catch(e){}
+    };
+    var _mo=new MutationObserver(function(ms){
+      ms.forEach(function(m){
+        if(m.type==='attributes'&&m.target.tagName==='IFRAME'){_noteI(m.target.src);return;}
+        [].forEach.call(m.addedNodes,function(n){if(n&&n.tagName==='IFRAME')_noteI(n.src);});
+      });
+    });
+    _mo.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});
   }catch(e){}
   // storage health probes — shown in the login debug banner
   try{sessionStorage.setItem('p','1');sessionStorage.removeItem('p');window.atr('ss','ok');}catch(e){window.atr('ss','FAIL');}
