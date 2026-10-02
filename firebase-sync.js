@@ -31,6 +31,7 @@
       localStorage.setItem('authTrace',JSON.stringify(t));
     }catch(e){}
   };
+  try{window.atr('pageLoad',(new Date()).toISOString().slice(11,19)+' url='+location.search);}catch(e){}
 
   // ========================================================
   // AUTH helpers
