@@ -22,6 +22,9 @@
   const SID='avfdpkytaxeqiuzmpxdu';
   const FB_BASE=()=>fbDb.collection('shops').doc(SID);
   window.FB_SID=SID;
+  // GCIP default web OAuth client (project hkshophisaab) — used for the
+  // relay-free Google flow: id_token comes back in the URL fragment.
+  const GOOGLE_OAUTH_CLIENT='495779454990-nkdu47nfhnbu3cfmb9bfeu271frekiqk.apps.googleusercontent.com';
 
   // auth step tracer — survives reloads so failures are visible on screen
   window.atr=function(k,v){
@@ -35,7 +38,9 @@
   try{
     var t0=JSON.parse(localStorage.getItem('authTrace')||'{}');
     t0.loadHistory=t0.loadHistory||[];
-    t0.loadHistory.push((new Date()).toISOString().slice(11,19)+' '+location.href.replace('https://hanumantkumar12-coder.github.io/hardware-shop-app',''));
+    var href=location.href.replace('https://hanumantkumar12-coder.github.io/hardware-shop-app','');
+    if(href.length>96)href=href.slice(0,96)+'…';
+    t0.loadHistory.push((new Date()).toISOString().slice(11,19)+' '+href);
     if(t0.loadHistory.length>6)t0.loadHistory=t0.loadHistory.slice(-6);
     localStorage.setItem('authTrace',JSON.stringify(t0));
   }catch(e){}
@@ -88,6 +93,55 @@
     pr.onsuccess=function(){window.atr('idb','ok');try{pr.result.close();}catch(e){}};
     pr.onerror=function(){window.atr('idb','FAIL:'+(pr.error&&pr.error.name));};
   }catch(e){window.atr('idb','throw:'+(e&&e.message));}
+
+  // ---- Google sign-in without the handler/iframe event relay -------------
+  // Firebase's redirect flow depends on a hidden __/auth/iframe posting an
+  // event back; that relay never delivers on some browsers, so the SDK
+  // returns null. Here the OAuth id_token is read straight from the URL
+  // fragment and traded for a Firebase session via signInWithCredential.
+  function fragmentParams(){
+    const h=(location.hash||'').replace(/^#/,'');
+    const o={};
+    if(!h)return o;
+    h.split('&').forEach(function(kv){
+      const i=kv.indexOf('=');
+      o[decodeURIComponent(i<0?kv:kv.slice(0,i))]=i<0?'':decodeURIComponent(kv.slice(i+1).replace(/\+/g,'%20'));
+    });
+    return o;
+  }
+  function noteAuthErr(msg){
+    try{localStorage.setItem('authErr',Date.now()+'|'+msg);}catch(e){}
+  }
+  window.__googleFragmentHandled=false;
+  window.__googleTokenReady=null;
+  window.completeGoogleFragment=function(){
+    let p={};
+    try{p=fragmentParams();}catch(e){}
+    if(!p.id_token&&!p.error)return false;
+    window.__googleFragmentHandled=true;
+    try{history.replaceState(null,'',location.pathname+location.search);}catch(e){}
+    try{
+      const want=sessionStorage.getItem('gState');
+      if(p.state&&want&&p.state!==want)window.atr('oauth','state-mismatch');
+    }catch(e){}
+    if(p.error){
+      window.atr('fb','googleERR:'+p.error);
+      noteAuthErr('Google: '+(p.error_description||p.error).slice(0,140));
+      return true;
+    }
+    window.atr('oauth','fragment-return:id_token');
+    const cred=fbAuth.GoogleAuthProvider.credential(p.id_token);
+    window.__googleTokenReady=fbAuth.signInWithCredential(cred).then(function(c){
+      window.atr('fb','credential-ok:'+((c&&c.user&&(c.user.email||c.user.uid))||'?'));
+      return c;
+    }).catch(function(e){
+      window.atr('fb','credential-ERR:'+((e&&e.code)||(e&&e.message)||e));
+      noteAuthErr('Google sign-in failed: '+(((e&&e.message)||e)+'').replace(/^Firebase:\s*/,''));
+      throw e;
+    });
+    return true;
+  };
+  try{if(FB_CONFIGURED)window.completeGoogleFragment();}catch(e){window.atr('frag','throw:'+((e&&e.message)||e));}
 
   // ========================================================
   // AUTH helpers
@@ -654,30 +708,25 @@
       if(!FB_CONFIGURED)return{data:null,error:{message:'Firebase not configured'}};
       if(!opts||opts.provider!=='google')
         return{data:null,error:{message:'Only Google sign-in is supported'}};
-      const provider=new firebase.auth.GoogleAuthProvider();
-      if(window.atr)atr('oauth','google-attempt');
-      const doRedirect=async(why)=>{
-        if(window.atr)atr('fb',why+'→redirect');
-        try{
-          await fbAuth.signInWithRedirect(provider);
-          return{data:null,error:null};
-        }catch(e2){
-          if(window.atr)atr('fb','redirectERR:'+(e2.code||e2.message));
-          return{data:null,error:{message:authErr(e2),code:e2.code}};
-        }
-      };
-      const isTouch=('ontouchstart' in window)||(navigator.maxTouchPoints>0)||/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
-      if(isTouch)return doRedirect('touch-device');
+      if(window.atr)atr('oauth','manual-oauth-redirect');
       try{
-        const c=await fbAuth.signInWithPopup(provider);
-        if(window.atr)atr('fb','popup-ok');
-        return{data:{user:c.user},error:null};
+        const st='gs'+Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+        try{sessionStorage.setItem('gState',st);}catch(e){}
+        const redir=location.origin+location.pathname+location.search;
+        const url='https://accounts.google.com/o/oauth2/v2/auth'
+          +'?client_id='+encodeURIComponent(GOOGLE_OAUTH_CLIENT)
+          +'&redirect_uri='+encodeURIComponent(redir)
+          +'&response_type='+encodeURIComponent('id_token')
+          +'&scope='+encodeURIComponent('openid email profile')
+          +'&prompt='+encodeURIComponent('select_account')
+          +'&state='+encodeURIComponent(st)
+          +'&nonce='+encodeURIComponent(st);
+        window.location.href=url;
+        return{data:null,error:null};
       }catch(e){
-        if(e.code==='auth/popup-blocked'||e.code==='auth/popup-closed-by-user'){
-          return doRedirect(e.code==='auth/popup-blocked'?'popup-blocked':'popup-closed');
-        }
-        if(window.atr)atr('fb','ERR '+(e.code||e.message));
-        return{data:null,error:{message:authErr(e),code:e.code}};}
+        if(window.atr)atr('fb','manualERR:'+((e&&e.message)||e));
+        return{data:null,error:{message:authErr(e),code:e.code}};
+      }
     }
   };
 
