@@ -31,7 +31,27 @@
       localStorage.setItem('authTrace',JSON.stringify(t));
     }catch(e){}
   };
-  try{window.atr('pageLoad',(new Date()).toISOString().slice(11,19)+' url='+location.search);}catch(e){}
+  // page-load history + firebase storage snapshot (before auth init consumes it)
+  try{
+    var t0=JSON.parse(localStorage.getItem('authTrace')||'{}');
+    t0.loadHistory=t0.loadHistory||[];
+    t0.loadHistory.push((new Date()).toISOString().slice(11,19)+(location.search||''));
+    if(t0.loadHistory.length>6)t0.loadHistory=t0.loadHistory.slice(-6);
+    localStorage.setItem('authTrace',JSON.stringify(t0));
+  }catch(e){}
+  try{
+    var ks=[];
+    for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(k&&k.indexOf('firebase')!==-1)ks.push(k);}
+    window.atr('fbstore',ks.length?ks.map(function(x){return x.substring(0,55);}).join(' | '):'none');
+  }catch(e){}
+  try{
+    if(indexedDB&&indexedDB.databases){
+      indexedDB.databases().then(function(ds){
+        var f=(ds||[]).map(function(d){return d.name||''}).filter(function(n){return /firebase/i.test(n);});
+        window.atr('idbDbs',f.length?f.join(','):'none');
+      }).catch(function(){});
+    }
+  }catch(e){}
   // storage health probes — shown in the login debug banner
   try{sessionStorage.setItem('p','1');sessionStorage.removeItem('p');window.atr('ss','ok');}catch(e){window.atr('ss','FAIL');}
   try{
@@ -609,12 +629,6 @@
       if(window.atr)atr('oauth','google-attempt');
       const doRedirect=async(why)=>{
         if(window.atr)atr('fb',why+'→redirect');
-        try{
-          await fbAuth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
-          if(window.atr)atr('persist','session');
-        }catch(ep){
-          if(window.atr)atr('persist','ERR '+(ep.code||ep.message));
-        }
         try{
           await fbAuth.signInWithRedirect(provider);
           return{data:null,error:null};
