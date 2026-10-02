@@ -32,6 +32,13 @@
     }catch(e){}
   };
   try{window.atr('pageLoad',(new Date()).toISOString().slice(11,19)+' url='+location.search);}catch(e){}
+  // storage health probes — shown in the login debug banner
+  try{sessionStorage.setItem('p','1');sessionStorage.removeItem('p');window.atr('ss','ok');}catch(e){window.atr('ss','FAIL');}
+  try{
+    var pr=indexedDB.open('probe'+Date.now());
+    pr.onsuccess=function(){window.atr('idb','ok');try{pr.result.close();}catch(e){}};
+    pr.onerror=function(){window.atr('idb','FAIL:'+(pr.error&&pr.error.name));};
+  }catch(e){window.atr('idb','throw:'+(e&&e.message));}
 
   // ========================================================
   // AUTH helpers
@@ -602,6 +609,12 @@
       if(window.atr)atr('oauth','google-attempt');
       const doRedirect=async(why)=>{
         if(window.atr)atr('fb',why+'→redirect');
+        try{
+          await fbAuth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+          if(window.atr)atr('persist','session');
+        }catch(ep){
+          if(window.atr)atr('persist','ERR '+(ep.code||ep.message));
+        }
         try{
           await fbAuth.signInWithRedirect(provider);
           return{data:null,error:null};
