@@ -392,7 +392,7 @@ async function boot(){
     $('v-auth').style.display='none';
     $('hdr').style.display='flex';$('app').style.display='block';$('navbar').style.display='flex';
     applyI18n();render('home');
-  }catch(e){console.error('boot failed',e);$('v-auth').style.display='block';}
+  }catch(e){console.error('boot failed',e);try{toast('⚠ Login failed: '+((e&&e.message)||e));}catch(_){}$('v-auth').style.display='block';}
 }
 
 /* ================= NAV ================= */
@@ -1627,6 +1627,14 @@ async function filterPurchases(){
 if(CONFIGURED){
   fbAuth.onAuthStateChanged(u=>{if(u&&!meProfile)boot();});
   boot();
+  try{
+    fbAuth.getRedirectResult().then(r=>{
+      if(r&&r.error){
+        const m=((r.error.message)||String(r.error.code||'error')).replace(/^Firebase:\s*/,'');
+        toast('⚠ Google sign-in failed: '+m);
+      }else if(r&&r.user&&!meProfile){boot();}
+    }).catch(()=>{});
+  }catch(e){}
   /* Session timeout - 15 min idle */
   let _sessionTimer;
   function resetSessionTimer(){
