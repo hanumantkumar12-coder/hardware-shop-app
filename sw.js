@@ -1,5 +1,5 @@
-const CACHE = 'shophisaab-v5';
-const SHELL = ['./config.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
+const CACHE = 'shophisaab-v7';
+const SHELL = ['./config.js', './firebase-sync.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

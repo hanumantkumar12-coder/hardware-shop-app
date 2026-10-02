@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isAllowedUser() {
+      return signedIn() && request.auth.token.email in [
+        'hanumantkumar12@gmail.com',
+        'jk.jaydeepkumar1999@gmail.com'
+      ];
+    }
+    match /shops/{shopId}/{collection}/{docId} {
+      allow read, write: if isAllowedUser();
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

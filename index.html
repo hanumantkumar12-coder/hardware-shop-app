@@ -362,19 +362,25 @@ function avatarInitial(name){return (name||'?')[0].toUpperCase();}
 async function doLogin(){
   if(!CONFIGURED)return toast('Edit config.js first!');
   const email=$('li-email').value.trim(),pass=$('li-pass').value;
-  // Firebase first (always works)
+  if(!email||!pass)return toast('Email & password required');
+  // 1) Try Firebase first (primary — never pauses)
   if(FB_CONFIGURED){
     const fbRes=await fbLogin(email,pass);
-    if(fbRes.error&&fbRes.error.code!=='auth/wrong-password'&&fbRes.error.code!=='auth/invalid-credential'){
-      // Firebase failed with unexpected error — try Supabase
-      const{error}=await db.auth.signInWithPassword({email,password:pass});
-      if(error)return toast('⚠ '+error.message);
-    }
-  }else{
-    const{error}=await db.auth.signInWithPassword({email,password:pass});
-    if(error)return toast('⚠ '+error.message);
+    if(fbRes.user)return boot();
   }
-  boot();
+  // 2) Fallback: Supabase (existing users / Supabase-only)
+  let sbOK=false,sbErr=null;
+  try{
+    const{error}=await db.auth.signInWithPassword({email,password:pass});
+    if(error){sbErr=error.message;}else{sbOK=true;}
+  }catch(e){sbErr=String(e&&e.message||e);}
+  if(sbOK){
+    // Supabase verified password — migrate account to Firebase (best-effort)
+    if(FB_CONFIGURED)await fbMigrateLogin(email,pass);
+    return boot();
+  }
+  // 3) Both failed — show the clearest error
+  return toast('⚠ '+(sbErr||'Login failed'));
 }
 async function doGoogle(){
   if(!CONFIGURED)return toast('Setup pending!');
@@ -567,9 +573,10 @@ async function saveProduct(id){
   const data=await one(q);
   if(data&&data[0])dualWrite('products',data[0].id,data[0],id?'update':'insert');
   else if(id)dualWrite('products',id,rec,'update');
+  syncAllToFirebase();
   closeModal();toast(t('saved'));loadProducts('');render('stock');
 }
-async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));dualDelete('products',id);closeModal();render('stock');}
+async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));dualDelete('products',id);syncAllToFirebase();closeModal();render('stock');}
 function adjustStock(i){
   const p=window._prods[i];
   modal(`<h3>📦 Adjust Stock: ${esc(p.name)}</h3>
@@ -594,6 +601,7 @@ async function saveAdjustment(pid){
   else newStock=qty;
   await one(db.from('products').update({current_stock:newStock,updated_at:new Date().toISOString()}).eq('id',pid));
   await one(db.from('stock_movements').insert({product_id:pid,qty:type==='remove'?-qty:type==='add'?qty:newStock-(+prod.current_stock),reason:reason,ref_table:'adjustment',ref_id:null}));
+  syncAllToFirebase();
   closeModal();toast('Stock adjusted!');loadProducts('');render('stock');
 }
 
@@ -680,6 +688,7 @@ async function saveCustFromSale(){
   if(!rec.name)return toast('Name?');
   const data=await one(db.from('customers').insert(rec).select());
   if(data&&data[0])dualWrite('customers',data[0].id,data[0],'insert');
+  syncAllToFirebase();
   closeModal();toast(t('saved'));
   const custs=await one(db.from('customers').select('id,name').order('name'));
   const sel=$('sl-cust');
@@ -693,6 +702,7 @@ async function saveSale(){
   const mode=cash>0&&upi>0?'mixed':cash>0?'cash':upi>0?'upi':'credit';
   const items=cart.map(c=>({product_id:c.id,qty:c.qty,unit_price:c.price}));
   const sid=await one(db.rpc('create_sale',{p_customer_id:saleCust?+saleCust:null,p_items:items,p_paid:paid,p_mode:mode}));
+  syncAllToFirebase();
   closeModal&&0;toast(t('saved')+' #'+sid);
   const custName=saleCust?$('sl-cust').selectedOptions[0].textContent:t('walkIn');
   const custObj=saleCust?window._saleCusts?.find(c=>c.id==saleCust):null;
@@ -792,6 +802,7 @@ async function saveCust(id){
   if(!rec.name)return toast('Name?');
   await one(id?db.from('customers').update(rec).eq('id',id):db.from('customers').insert(rec));
   dualWrite('customers',id||Date.now(),rec,id?'update':'insert');
+  syncAllToFirebase();
   closeModal();toast(t('saved'));loadCusts('');
 }
 async function openKhata(i){
@@ -832,6 +843,7 @@ async function savePay(cid,i){
   const amt=+($('py-amt').value||0);if(!amt)return toast('Amount?');
   await one(db.rpc('receive_payment',{p_customer_id:cid,p_amount:amt,p_mode:$('py-mode').value,p_note:$('py-note').value||null}));
   dualWrite('payments',Date.now(),{direction:'received',customer_id:cid,amount:amt,mode:$('py-mode').value,note:$('py-note').value||null},'insert');
+  syncAllToFirebase();
   closeModal();toast(t('saved'));loadCusts('');
 }
 function waRemind(i){
@@ -905,6 +917,7 @@ async function saveSupplierPay(sid){
   await one(db.from('payments').insert({direction:'paid',supplier_id:sid,amount:amt,mode:'cash',note:note}));
   const newBal=+s.balance - amt;
   await one(db.from('suppliers').update({balance:newBal}).eq('id',sid));
+  syncAllToFirebase();
   closeModal();toast('Payment saved!');render('more');
 }
 
@@ -1012,6 +1025,7 @@ async function savePur(){
   const mode=$('pu-mode')?.value||'cash';
   await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:paid}));
   dualWrite('purchases',Date.now(),{supplier_name:$('pu-sup').value||'—',paid_amount:paid,items:items},'insert');
+  syncAllToFirebase();
   closeModal();toast(t('saved')+' — stock updated');render('more');
 }
 /* -------- Expenses -------- */
@@ -1037,6 +1051,7 @@ async function saveExpense(){
   if(!rec.amount)return toast('Amount?');
   await one(db.from('expenses').insert(rec));
   dualWrite('expenses',Date.now(),rec,'insert');
+  syncAllToFirebase();
   closeModal();toast('Expense saved!');
 }
 async function showExpenses(){
@@ -1135,10 +1150,9 @@ async function returnSale(sid){
         await one(db.from('customers').update({balance:+cust.balance- +sale.due_amount}).eq('id',sale.customer_id));
       }
     }
-    // Mark sale as voided
+    // Mark sale as voided (aud_sales trigger logs this automatically — manual audit_log insert removed: wrong columns + no INSERT policy)
     await one(db.from('sales').update({status:'voided',due_amount:0,updated_at:new Date().toISOString()}).eq('id',sid));
-    // Update audit
-    await one(db.from('audit_log').insert({action:'SALE_VOIDED',table_name:'sales',record_id:sid,old_data:sale,new_data:{...sale,status:'voided'}}));
+    syncAllToFirebase();
     closeModal();toast('Sale voided & stock restored!');
   }catch(e){toast('Error: '+e.message);}
 }
