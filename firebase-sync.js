@@ -599,20 +599,25 @@
         return{data:null,error:{message:'Only Google sign-in is supported'}};
       const provider=new firebase.auth.GoogleAuthProvider();
       if(window.atr)atr('oauth','google-attempt');
+      const doRedirect=async(why)=>{
+        if(window.atr)atr('fb',why+'→redirect');
+        try{
+          await fbAuth.signInWithRedirect(provider);
+          return{data:null,error:null};
+        }catch(e2){
+          if(window.atr)atr('fb','redirectERR:'+(e2.code||e2.message));
+          return{data:null,error:{message:authErr(e2),code:e2.code}};
+        }
+      };
+      const isTouch=('ontouchstart' in window)||(navigator.maxTouchPoints>0)||/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
+      if(isTouch)return doRedirect('touch-device');
       try{
         const c=await fbAuth.signInWithPopup(provider);
         if(window.atr)atr('fb','popup-ok');
         return{data:{user:c.user},error:null};
       }catch(e){
-        if(e.code==='auth/popup-blocked'){
-          if(window.atr)atr('fb','popup-blocked→redirect');
-          try{
-            await fbAuth.signInWithRedirect(provider);
-            return{data:null,error:null};
-          }catch(e2){
-            if(window.atr)atr('fb','redirectERR:'+(e2.code||e2.message));
-            return{data:null,error:{message:authErr(e2)||'Popup blocked — allow popups for this site',code:e2.code}};
-          }
+        if(e.code==='auth/popup-blocked'||e.code==='auth/popup-closed-by-user'){
+          return doRedirect(e.code==='auth/popup-blocked'?'popup-blocked':'popup-closed');
         }
         if(window.atr)atr('fb','ERR '+(e.code||e.message));
         return{data:null,error:{message:authErr(e),code:e.code}};}
