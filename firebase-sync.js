@@ -712,7 +712,7 @@
       try{
         const st='gs'+Date.now().toString(36)+Math.random().toString(36).slice(2,10);
         try{sessionStorage.setItem('gState',st);}catch(e){}
-        const redir=location.origin+location.pathname+location.search;
+        const redir=location.origin+location.pathname;
         const url='https://accounts.google.com/o/oauth2/v2/auth'
           +'?client_id='+encodeURIComponent(GOOGLE_OAUTH_CLIENT)
           +'&redirect_uri='+encodeURIComponent(redir)
