@@ -358,13 +358,22 @@ const AV=['green','blue','orange','red','purple','teal'];
 function avatarColor(name){let h=0;for(let i=0;i<(name||'').length;i++)h=name.charCodeAt(i)+((h<<5)-h);return AV[Math.abs(h)%AV.length];}
 function avatarInitial(name){return (name||'?')[0].toUpperCase();}
 
-/* ================= AUTH ================= */
+/* ================= AUTH — Firebase primary ================= */
 async function doLogin(){
   if(!CONFIGURED)return toast('Edit config.js first!');
   const email=$('li-email').value.trim(),pass=$('li-pass').value;
-  const{error}=await db.auth.signInWithPassword({email,password:pass});
-  if(error)return toast('⚠ '+error.message);
-  syncFirebaseAuth(email,pass);
+  // Firebase first (always works)
+  if(FB_CONFIGURED){
+    const fbRes=await fbLogin(email,pass);
+    if(fbRes.error&&fbRes.error.code!=='auth/wrong-password'&&fbRes.error.code!=='auth/invalid-credential'){
+      // Firebase failed with unexpected error — try Supabase
+      const{error}=await db.auth.signInWithPassword({email,password:pass});
+      if(error)return toast('⚠ '+error.message);
+    }
+  }else{
+    const{error}=await db.auth.signInWithPassword({email,password:pass});
+    if(error)return toast('⚠ '+error.message);
+  }
   boot();
 }
 async function doGoogle(){
@@ -377,18 +386,35 @@ async function doForgotPass(){
   if(!CONFIGURED)return toast('Edit config.js first!');
   const email=prompt('Enter your email address:');
   if(!email)return;
+  if(FB_CONFIGURED){
+    try{await fbAuth.sendPasswordResetEmail(email);toast('Password reset email sent!');return;}catch(e){}
+  }
   const{error}=await db.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
   if(error)return toast('⚠ '+error.message);
   toast('Password reset email sent! Check your inbox.');
 }
-async function logout(){await db.auth.signOut();signOutFirebase();location.reload();}
+async function logout(){await fbLogout();location.reload();}
 async function boot(){
   if(!CONFIGURED)return;
   try{
-    const{data:{user}}=await db.auth.getUser();
+    // Firebase session first (always available)
+    let user=null;
+    if(FB_CONFIGURED){
+      user=await fbGetCurrentUser();
+    }
+    // Fallback to Supabase session
+    if(!user){
+      try{const{data}=await db.auth.getUser();user=data.user;}catch(e){}
+    }
     if(!user)return;
-    let prof;
-    try{prof=await one(db.from('profiles').select('*').eq('id',user.id).maybeSingle());}catch(e){prof=null;}
+    // Get profile — Firestore first, Supabase fallback
+    let prof=null;
+    if(FB_CONFIGURED){
+      prof=await fbGetProfile(user.id,user.email);
+    }
+    if(!prof){
+      try{prof=await one(db.from('profiles').select('*').eq('id',user.id).maybeSingle());}catch(e){prof=null;}
+    }
     if(!prof){prof={name:user.email,role:'owner'};}
     meProfile={...prof,email:user.email};
     $('v-auth').style.display='none';
@@ -1636,17 +1662,17 @@ async function filterPurchases(){
     <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(p.total)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:10px"><p>No purchases found</p></div>';
 }
 if(CONFIGURED){
+  // Firebase auth listener (primary) + Supabase listener (backup)
+  if(FB_CONFIGURED){fbAuth.onAuthStateChanged(u=>{if(u&&!meProfile)boot();});}
   db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();
   /* Session timeout - 15 min idle */
   let _sessionTimer;
   function resetSessionTimer(){
     clearTimeout(_sessionTimer);
     _sessionTimer=setTimeout(async()=>{
-      if(db&&db.auth){
-        await db.auth.signOut();
-        toast('Session expired due to inactivity');
-        location.reload();
-      }
+      await fbLogout();
+      toast('Session expired due to inactivity');
+      location.reload();
     },15*60*1000);
   }
   ['click','keypress','scroll','mousemove'].forEach(evt=>document.addEventListener(evt,resetSessionTimer));
