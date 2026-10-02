@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#1a8917">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' https://www.gstatic.com data:; connect-src 'self' https://*.supabase.co; font-src 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' https://www.gstatic.com data:; connect-src 'self' https://*.supabase.co https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://*.supabase.co wss://*.firebaseio.com; font-src 'self';">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="DENY">
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -15,8 +15,12 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>HK Shop Hisaab</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="config.js"></script>
+<script src="firebase-sync.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -360,6 +364,7 @@ async function doLogin(){
   const email=$('li-email').value.trim(),pass=$('li-pass').value;
   const{error}=await db.auth.signInWithPassword({email,password:pass});
   if(error)return toast('⚠ '+error.message);
+  syncFirebaseAuth(email,pass);
   boot();
 }
 async function doGoogle(){
@@ -376,7 +381,7 @@ async function doForgotPass(){
   if(error)return toast('⚠ '+error.message);
   toast('Password reset email sent! Check your inbox.');
 }
-async function logout(){await db.auth.signOut();location.reload();}
+async function logout(){await db.auth.signOut();signOutFirebase();location.reload();}
 async function boot(){
   if(!CONFIGURED)return;
   try{
@@ -532,10 +537,13 @@ async function saveProduct(id){
     purchase_price:+($('pf-cost').value||0),selling_price:+($('pf-sell').value||0),
     current_stock:+($('pf-stk').value||0),reorder_level:+($('pf-min').value||0)};
   if(!rec.name)return toast('Name?');
-  const q=id?db.from('products').update(rec).eq('id',id):db.from('products').insert(rec);
-  await one(q);closeModal();toast(t('saved'));loadProducts('');render('stock');
+  const q=id?db.from('products').update(rec).eq('id',id):db.from('products').insert(rec).select();
+  const data=await one(q);
+  if(data&&data[0])dualWrite('products',data[0].id,data[0],id?'update':'insert');
+  else if(id)dualWrite('products',id,rec,'update');
+  closeModal();toast(t('saved'));loadProducts('');render('stock');
 }
-async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));closeModal();render('stock');}
+async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));dualDelete('products',id);closeModal();render('stock');}
 function adjustStock(i){
   const p=window._prods[i];
   modal(`<h3>📦 Adjust Stock: ${esc(p.name)}</h3>
@@ -645,6 +653,7 @@ async function saveCustFromSale(){
     address:$('cf-ad').value.trim()||null,balance:+($('cf-bal').value||0)};
   if(!rec.name)return toast('Name?');
   const data=await one(db.from('customers').insert(rec).select());
+  if(data&&data[0])dualWrite('customers',data[0].id,data[0],'insert');
   closeModal();toast(t('saved'));
   const custs=await one(db.from('customers').select('id,name').order('name'));
   const sel=$('sl-cust');
@@ -756,6 +765,7 @@ async function saveCust(id){
   else rec.balance=+($('cf-bal').value||0);
   if(!rec.name)return toast('Name?');
   await one(id?db.from('customers').update(rec).eq('id',id):db.from('customers').insert(rec));
+  dualWrite('customers',id||Date.now(),rec,id?'update':'insert');
   closeModal();toast(t('saved'));loadCusts('');
 }
 async function openKhata(i){
@@ -795,6 +805,7 @@ function payModal(cid,i){
 async function savePay(cid,i){
   const amt=+($('py-amt').value||0);if(!amt)return toast('Amount?');
   await one(db.rpc('receive_payment',{p_customer_id:cid,p_amount:amt,p_mode:$('py-mode').value,p_note:$('py-note').value||null}));
+  dualWrite('payments',Date.now(),{direction:'received',customer_id:cid,amount:amt,mode:$('py-mode').value,note:$('py-note').value||null},'insert');
   closeModal();toast(t('saved'));loadCusts('');
 }
 function waRemind(i){
@@ -974,6 +985,7 @@ async function savePur(){
   const paid=+($('pu-paid')?.value||0);
   const mode=$('pu-mode')?.value||'cash';
   await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:paid}));
+  dualWrite('purchases',Date.now(),{supplier_name:$('pu-sup').value||'—',paid_amount:paid,items:items},'insert');
   closeModal();toast(t('saved')+' — stock updated');render('more');
 }
 /* -------- Expenses -------- */
@@ -998,6 +1010,7 @@ async function saveExpense(){
   };
   if(!rec.amount)return toast('Amount?');
   await one(db.from('expenses').insert(rec));
+  dualWrite('expenses',Date.now(),rec,'insert');
   closeModal();toast('Expense saved!');
 }
 async function showExpenses(){
