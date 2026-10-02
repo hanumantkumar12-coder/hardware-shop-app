@@ -13,7 +13,7 @@ Works on all family/staff phones with LIVE sync. Cost: ₹0/month forever.
 1. Go to https://console.firebase.google.com → **Add project** → name: `hkshophisaab` (Analytics OFF is fine)
 2. In the project: **Build → Firestore Database → Create database** → start in **production mode** → region **asia-south1 (Mumbai)**
 3. **Build → Authentication → Get started → Sign-in method** → enable **Email/Password** (and **Google** if you want the Google button)
-4. **Authentication → Settings → Authorized domains** → add `hanumantkumar12-coder.github.io` (needed for the Google button; password login works without it)
+4. **Authentication → Settings → Authorized domains** → `hanumantkumar12-coder.github.io` is **already added** (done via the admin config API; re-add here only if it ever disappears). Needed for the Google button; password login works without it
 
 ### Step 2 — Deploy the security rules (only owners can read/write)
 1. In this repo open `firestore.rules` and copy its content
@@ -47,7 +47,7 @@ Works on all family/staff phones with LIVE sync. Cost: ₹0/month forever.
 - **Data location:** Firestore `shops/avfdpkytaxeqiuzmpxdu/...` — Console → Firestore →Export/backup anytime
 - **Security:** rules in `firestore.rules` allow ONLY the owner emails — the public anon key alone grants nothing
 - **Never pauses:** Firebase free Spark plan has no idle-pause behavior
-- **Google login:** if the Google button says "domain not allowed", add `hanumantkumar12-coder.github.io` under Authentication → Settings → Authorized domains (Step 3.1 above)
+- **Google login:** the github.io domain is already in Firebase authorized domains (added via admin config API); if the button ever says "domain not allowed", re-add it under Authentication → Settings → Authorized domains (Step 1.4 above)
 
 ---
 Made with ❤️ — lifetime-free stack. No monthly bills, ever.
