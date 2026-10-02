@@ -1,12 +1,11 @@
 // ============================================================
-// FIREBASE SYNC — PRIMARY backend (never pauses)
-// Supabase = BACKUP (resume manually on pause alert)
+// FIREBASE BACKEND — sole database + auth (never pauses)
 //
-// Strategy:
-//   1. Auth: Firebase primary, Supabase secondary (migration on login)
-//   2. Reads: Supabase first (fast); if paused -> Firestore fallback
-//   3. Writes: Supabase first, debounced full sync to Firebase
-//   4. RPCs: Firebase native implementation when Supabase down
+// Data:  shops/{SID}/{collection}/{id}   (Firestore)
+// Auth:  Firebase Authentication (Email/Password + Google)
+//
+// Exposes `window.db` — a Supabase-compatible facade
+// (db.from / db.rpc / db.auth) so app code keeps working.
 // ============================================================
 (function(){
   // ---- INIT FIREBASE ----
@@ -25,39 +24,33 @@
   window.FB_SID=SID;
 
   // ========================================================
-  // AUTH — Firebase primary
+  // AUTH helpers
   // ========================================================
+  function authErr(e){
+    const m=(e&&e.message)||'';
+    const code=(e&&e.code)||'';
+    if(code==='auth/invalid-credential'||code==='auth/wrong-password'||code==='auth/user-not-found')
+      return 'Invalid email or password';
+    if(code==='auth/too-many-requests')return 'Too many attempts — try again later';
+    if(code==='auth/invalid-email')return 'Invalid email address';
+    if(code==='auth/network-request-failed')return 'Network error — check connection';
+    if(code==='auth/unauthorized-domain')
+      return 'This website domain is not allowed. Add it in Firebase Console → Authentication → Settings → Authorized domains.';
+    if(code==='auth/popup-blocked')return 'Popup blocked — allow popups for this site';
+    if(code==='auth/cancelled-popup-request'||code==='auth/popup-closed-without-complete')return 'Sign-in cancelled';
+    return m.replace(/^Firebase:\s*/,'')||'Login failed';
+  }
+
   window.fbLogin=async function(email,pass){
     if(!FB_CONFIGURED)return{error:{message:'Firebase not configured'}};
     try{
       const cred=await fbAuth.signInWithEmailAndPassword(email,pass);
-      if(typeof db!=='undefined'&&db){
-        db.auth.signInWithPassword({email,password:pass}).catch(()=>{});
-      }
       return{user:cred.user,error:null};
-    }catch(e){
-      // NO auto-create here — doLogin migrates only after Supabase verifies password
-      return{error:{message:e.message,code:e.code}};
-    }
-  };
-
-  // Called after Supabase verifies an existing user — creates matching Firebase account
-  window.fbMigrateLogin=async function(email,pass){
-    if(!FB_CONFIGURED)return{error:{message:'not configured'}};
-    try{
-      const cred=await fbAuth.createUserWithEmailAndPassword(email,pass);
-      return{user:cred.user,error:null};
-    }catch(e){
-      try{
-        const cred=await fbAuth.signInWithEmailAndPassword(email,pass);
-        return{user:cred.user,error:null};
-      }catch(e2){return{error:{message:e2.message,code:e2.code}};}
-    }
+    }catch(e){return{error:{message:authErr(e),code:e.code}};}
   };
 
   window.fbLogout=async function(){
     if(FB_CONFIGURED){try{await fbAuth.signOut();}catch(e){}}
-    if(typeof db!=='undefined'&&db){try{await db.auth.signOut();}catch(e){}}
   };
 
   window.fbGetCurrentUser=function(){
@@ -70,27 +63,23 @@
   };
 
   // ========================================================
-  // PROFILE — keyed by email (stable across auth providers)
+  // PROFILE — canonical doc keyed by lowercase email
   // ========================================================
   window.fbGetProfile=async function(uid,email){
     if(!FB_CONFIGURED)return null;
     try{
       const col=FB_BASE().collection('profiles');
       const eml=(email||'').toLowerCase();
-      // 1) canonical doc by email (profiles migrated/synced with email field)
       if(eml){
         const d=await col.doc(eml).get();
         if(d.exists){
-          const p={...d.data()};
-          // mirror under uid for compatibility
+          const p={...d.data()};delete p._ts;
           try{await col.doc(String(uid)).set({...p,id:uid},{merge:true});}catch(e){}
-          return{id:uid,...p};
+          return{...p,id:uid};
         }
       }
-      // 2) doc by uid
       const d2=await col.doc(String(uid)).get();
-      if(d2.exists)return{id:d2.id,...d2.data()};
-      // 3) create default (least privilege)
+      if(d2.exists){const p={...d2.data()};delete p._ts;return{...p,id:d2.id};}
       const defRole=(eml==='hanumantkumar12@gmail.com')?'owner':'staff';
       const prof={name:(email||'User').split('@')[0],role:defRole,active:true,email:eml||null,
                   created_at:new Date().toISOString()};
@@ -100,467 +89,520 @@
   };
 
   // ========================================================
-  // DUAL WRITE — mirror one row to Firebase
+  // ROW CACHE — small collections, short TTL, write-invalidated
   // ========================================================
-  window.dualWrite=async function(collection,docId,data,op){
-    if(!FB_CONFIGURED)return;
-    try{
-      const ref=FB_BASE().collection(collection).doc(String(docId));
-      if(op==='delete')await ref.delete();
-      else await ref.set({...data,id:docId,_ts:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-    }catch(e){console.warn('FB write fail:',collection,e);}
-  };
+  const TTL=2000;
+  const _cache=new Map();
+  const _pending=new Map();
 
-  window.dualDelete=async function(collection,docId){
-    if(!FB_CONFIGURED)return;
-    try{await FB_BASE().collection(collection).doc(String(docId)).delete();}catch(e){}
-  };
+  function docToRow(doc){
+    const v=doc.data()||{};
+    const row={};
+    for(const k in v){if(k==='_ts')continue;row[k]=v[k];}
+    if(row.id===undefined||row.id===null){
+      const n=+doc.id;row.id=isNaN(n)?doc.id:n;
+    }else if(typeof row.id==='string'&&/^-?\d+$/.test(row.id)){
+      row.id=+row.id;
+    }
+    return row;
+  }
 
-  // ========================================================
-  // FULL SYNC — pull all Supabase tables -> Firestore
-  // (debounced; covers EVERY write path incl. RPC mutations)
-  // ========================================================
-  const SYNC_TABLES=['profiles','products','customers','suppliers','sales','sale_items',
-                     'purchases','purchase_items','payments','expenses','stock_movements'];
-  let _syncTimer=null,_syncing=false;
-  window.syncAllToFirebase=function(){
-    if(!FB_CONFIGURED)return;
-    clearTimeout(_syncTimer);
-    _syncTimer=setTimeout(_syncAll,2000);
-  };
-  async function _syncAll(){
-    if(_syncing)return;
-    if(!FB_CONFIGURED||typeof db==='undefined'||!db)return;
-    _syncing=true;
-    try{
-      for(const t of SYNC_TABLES){
-        let rows=null;
-        try{
-          const{data,error}=await db.from(t).select('*').limit(10000);
-          if(!error)rows=data;
-        }catch(e){}
-        if(!rows||!rows.length)continue;
-        // profiles: key by email when available
-        const keyOf=(r)=>t==='profiles'&&r.email?String(r.email).toLowerCase():String(r.id);
-        for(let i=0;i<rows.length;i+=400){
-          const chunk=rows.slice(i,i+400);
-          const batch=fbDb.batch();
-          const base=FB_BASE().collection(t);
-          chunk.forEach(r=>{
-            const{id,...rest}=r;
-            const docId=keyOf(r);
-            const payload={...rest,id:(t==='profiles'&&r.email)?(rest.id||docId):id,
-                           _ts:firebase.firestore.FieldValue.serverTimestamp()};
-            batch.set(base.doc(docId),payload,{merge:true});
-          });
-          await batch.commit();
-        }
-      }
-      console.log('[FB_SYNC] all tables synced to Firebase');
-    }catch(e){console.warn('[FB_SYNC] sync error:',e);}
-    finally{_syncing=false;}
+  async function loadRows(table){
+    const c=_cache.get(table);
+    if(c&&Date.now()-c.ts<TTL)return c.rows;
+    if(_pending.has(table))return _pending.get(table);
+    const p=(async()=>{
+      try{
+        const snap=await FB_BASE().collection(table).get();
+        const rows=snap.docs.map(docToRow);
+        _cache.set(table,{ts:Date.now(),rows});
+        return rows;
+      }finally{_pending.delete(table);}
+    })();
+    _pending.set(table,p);
+    p.catch(()=>{});
+    return p;
+  }
+  function dropCache(t){if(t)_cache.delete(t);else _cache.clear();}
+
+  function clean(obj){
+    const out={};
+    for(const k in obj){if(obj[k]!==undefined)out[k]=obj[k];}
+    return out;
+  }
+
+  function nextIdFrom(rows){
+    let max=0;
+    rows.forEach(r=>{const n=+r.id;if(!isNaN(n)&&isFinite(n)&&n>max)max=n;});
+    return max+1;
   }
 
   // ========================================================
-  // FIRESTORE QUERY — fallback reads
+  // AUDIT — mirror of Supabase aud_* triggers (client-side)
+  // tables: products, customers, suppliers, sales, purchases, payments
   // ========================================================
-  window.fbQuery=async function(table,opts){
-    if(!FB_CONFIGURED)return null;
-    opts=opts||{};
+  const AUDITED=['products','customers','suppliers','sales','purchases','payments'];
+  function writeAudit(action,table,rowId,oldRow,newRow){
+    if(!FB_CONFIGURED||!AUDITED.includes(table))return;
     try{
-      let q=FB_BASE().collection(table);
-      if(opts.where){
-        opts.where.forEach(([field,op,val])=>{q=q.where(field,op,val);});
-      }
-      if(opts.orderBy){
-        const[field,dir]=opts.orderBy;
-        q=q.orderBy(field,dir||'asc');
-      }
-      if(opts.limit)q=q.limit(opts.limit);
-      const snap=await q.get();
-      return snap.docs.map(d=>{const v=d.data();return{...v,id:(v.id!==undefined&&!isNaN(+v.id))?+v.id:(isNaN(+d.id)?d.id:+d.id)};});
-    }catch(e){console.warn('fbQuery fail:',table,e);return null;}
+      const aid=Date.now()*1000+Math.floor(Math.random()*1000);
+      let who=null;
+      try{if(typeof meProfile!=='undefined'&&meProfile)who=meProfile;}catch(e){}
+      const u=fbAuth.currentUser;
+      FB_BASE().collection('audit_log').doc(String(aid)).set({
+        id:aid,
+        acted_at:new Date().toISOString(),
+        actor:u?u.uid:null,
+        actor_name:who?(who.name||who.email):(u?u.email:'?'),
+        action:action,table_name:table,row_id:String(rowId),
+        old_row:oldRow||null,new_row:newRow||null
+      }).catch(()=>{});
+    }catch(e){}
+  }
+
+  // ========================================================
+  // FILTER / SORT helpers (SQL-like semantics, client-side)
+  // ========================================================
+  function eqMatch(a,b){
+    if(a===undefined)a=null;if(b===undefined)b=null;
+    if(a===null||b===null)return a===b;
+    if(typeof a==='number'||typeof b==='number'){
+      const na=+a,nb=+b;
+      if(!isNaN(na)&&!isNaN(nb)&&isFinite(na)&&isFinite(nb))return na===nb;
+    }
+    if(typeof a==='boolean'||typeof b==='boolean')return (a?'1':'0')===(b?'1':'0');
+    return String(a)===String(b);
+  }
+  function normCmp(v){
+    if(v===null||v===undefined)return null;
+    if(typeof v==='number')return isFinite(v)?v:null;
+    if(typeof v==='boolean')return v?1:0;
+    if(typeof v==='string'){
+      if(/^\d{4}-\d{2}-\d{2}/.test(v))return v;      // date-like → compare by Date.parse
+      if(v!==''&&!isNaN(+v)&&isFinite(+v))return +v;
+      return v;
+    }
+    return v;
+  }
+  function rel(a,b){                                       // sort compare, nulls last
+    const A=normCmp(a),B=normCmp(b);
+    if(A===null&&B===null)return 0;
+    if(A===null)return 1;
+    if(B===null)return -1;
+    if(typeof A==='string'&&typeof B==='string'){
+      const ta=Date.parse(A),tb=Date.parse(B);
+      if(!isNaN(ta)&&!isNaN(tb))return ta-tb;
+      return A<B?-1:A>B?1:0;
+    }
+    const na=typeof A==='number'?A:+A, nb=typeof B==='number'?B:+B;
+    if(!isNaN(na)&&!isNaN(nb))return na-nb;
+    return String(A)<String(B)?-1:String(A)>String(B)?1:0;
+  }
+  function relMatch(a,b,op){                               // >, >=, <, <=
+    const A=normCmp(a),B=normCmp(b);
+    if(A===null||B===null)return false;                    // SQL: null comparisons are false
+    if(typeof A==='string'&&typeof B==='string'){
+      const ta=Date.parse(A),tb=Date.parse(B);
+      if(!isNaN(ta)&&!isNaN(tb))return op==='>'?ta>tb:op==='>='?ta>=tb:op==='<'?ta<tb:ta<=tb;
+      return op==='>'?A>B:op==='>='?A>=B:op==='<'?A<B:A<=B;
+    }
+    const na=+A,nb=+B;
+    if(!isNaN(na)&&!isNaN(nb))
+      return op==='>'?na>nb:op==='>='?na>=nb:op==='<'?na<nb:na<=nb;
+    return false;
+  }
+
+  // ========================================================
+  // QUERY BUILDER — thenable, Supabase-compatible surface
+  // ========================================================
+  function QB(table){
+    this.table=table;
+    this._op='select';
+    this._select='*';
+    this._filters=[];
+    this._orders=[];
+    this._limit=null;
+    this._range=null;
+    this._mode='many';
+    this._values=null;
+  }
+  QB.prototype.select=function(cols){
+    if(this._op==='select'&&cols!==undefined&&cols!==null)this._select=cols;
+    return this;
+  };
+  QB.prototype.insert=function(v){this._op='insert';this._values=v;return this;};
+  QB.prototype.update=function(v){this._op='update';this._values=v;return this;};
+  QB.prototype.delete=function(){this._op='delete';return this;};
+  QB.prototype.eq=function(f,v){this._filters.push({op:'eq',f:f,v:v});return this;};
+  QB.prototype.neq=function(f,v){this._filters.push({op:'neq',f:f,v:v});return this;};
+  QB.prototype.gt=function(f,v){this._filters.push({op:'gt',f:f,v:v});return this;};
+  QB.prototype.gte=function(f,v){this._filters.push({op:'gte',f:f,v:v});return this;};
+  QB.prototype.lt=function(f,v){this._filters.push({op:'lt',f:f,v:v});return this;};
+  QB.prototype.lte=function(f,v){this._filters.push({op:'lte',f:f,v:v});return this;};
+  QB.prototype.in=function(f,arr){this._filters.push({op:'in',f:f,v:arr||[]});return this;};
+  QB.prototype.order=function(f,opts){
+    this._orders.push({f:f,asc:!opts||opts.ascending!==false});
+    return this;
+  };
+  QB.prototype.limit=function(n){this._limit=n;return this;};
+  QB.prototype.range=function(a,b){this._range=[a,b];return this;};
+  QB.prototype.single=function(){this._mode='single';return this;};
+  QB.prototype.maybeSingle=function(){this._mode='maybe';return this;};
+  QB.prototype.then=function(onFulfilled,onRejected){
+    return this._run().then(onFulfilled,onRejected);
   };
 
-  // ========================================================
-  // URL PARSER — extract table+query from Supabase REST URL
-  // ========================================================
-  function parseRestUrl(url){
-    try{
-      const u=new URL(url);
-      const match=u.pathname.match(/\/rest\/v1\/(\w+)/);
-      if(!match)return null;
-      const table=match[1];
-      const params=u.searchParams;
-      const result={table,where:[],inFilters:[],orderBy:null,limit:null,offset:0,select:null,joins:[]};
-
-      const sel=params.get('select');
-      if(sel)result.select=sel;
-
-      const order=params.get('order');
-      if(order){
-        const[first]=order.split(',');
-        const[col,dir]=first.split('.');
-        result.orderBy=[col,dir==='desc'?'desc':'asc'];
+  QB.prototype._match=function(r){
+    return this._filters.every(f=>{
+      const v=r[f.f];
+      switch(f.op){
+        case 'eq':return eqMatch(v,f.v);
+        case 'neq':return (v===null||v===undefined)?false:!eqMatch(v,f.v);
+        case 'gt':return relMatch(v,f.v,'>');
+        case 'gte':return relMatch(v,f.v,'>=');
+        case 'lt':return relMatch(v,f.v,'<');
+        case 'lte':return relMatch(v,f.v,'<=');
+        case 'in':return (f.v||[]).some(x=>eqMatch(v,x));
+        default:return true;
       }
-
-      const limit=params.get('limit');
-      if(limit)result.limit=+limit;
-
-      const offset=params.get('offset');
-      if(offset)result.offset=+offset;
-
-      if(sel&&sel.includes('(')){
-        for(const m of sel.matchAll(/(\w+)\(([^)]+)\)/g)){result.joins.push({table:m[1],cols:m[2]});}
-      }
-
-      for(const[key,val]of params){
-        if(['select','order','limit','offset','on_conflict','columns'].includes(key))continue;
-        const eqIdx=val.indexOf('.');
-        if(eqIdx>0){
-          const op=val.substring(0,eqIdx);
-          const value=val.substring(eqIdx+1);
-          if(op==='in'){
-            const list=(value.startsWith('(')?value.slice(1,-1):value).split(',').map(v=>{
-              const n=+v;return isNaN(n)?v:n;
-            });
-            result.inFilters.push([key,list]);
-            continue;
-          }
-          const opMap={eq:'==',neq:'!=',gt:'>',gte:'>=',lt:'<',lte:'<='};
-          if(opMap[op])result.where.push([key,opMap[op],isNaN(+value)?value:+value]);
-        }
-      }
-      return result;
-    }catch(e){return null;}
-  }
-
-  // ========================================================
-  // FETCH INTERCEPTOR — Supabase paused -> Firestore fallback
-  // ========================================================
-  const _origFetch=window.fetch.bind(window);
-  window.fetch=async function(input,init){
-    const url=typeof input==='string'?input:(input instanceof Request?input.url:(input&&input.url)||'');
-
-    if(!url.includes('.supabase.co')||!FB_CONFIGURED){
-      return _origFetch(input,init);
-    }
-
-    try{
-      const resp=await _origFetch(input,init);
-      if(resp.status>=500){
-        console.warn('Supabase 5xx ('+resp.status+'), falling back to Firebase');
-        return fbFallbackResponse(url,init);
-      }
-      if(resp.status>=400&&resp.status!==401&&resp.status!==403){
-        const body=await resp.clone().text();
-        if(resp.status===404||resp.status===410||resp.status===429||
-           body.includes('pause')||body.includes('not found')||body.includes('PGRST')){
-          console.warn('Supabase unavailable ('+resp.status+'), falling back to Firebase');
-          return fbFallbackResponse(url,init);
-        }
-      }
-      return resp;
-    }catch(e){
-      console.warn('Supabase unreachable, falling back to Firebase:',e.message);
-      return fbFallbackResponse(url,init);
-    }
+    });
   };
 
-  // Read Accept / Range headers from fetch init (object, Headers, or array)
-  function hdr(init,name){
-    if(!init||!init.headers)return null;
-    const h=init.headers;
-    if(typeof Headers!=='undefined'&&h instanceof Headers)return h.get(name);
-    if(Array.isArray(h)){const f=h.find(x=>x[0].toLowerCase()===name.toLowerCase());return f?f[1]:null;}
-    for(const k of Object.keys(h)){if(k.toLowerCase()===name.toLowerCase())return h[k];}
-    return null;
+  function parseSelect(sel){
+    const joins=[];
+    if(!sel||sel==='*')return{cols:null,joins:joins};
+    let rest=sel.replace(/(\w+)\s*\(([^)]*)\)/g,function(m,tb,cs){joins.push({table:tb,cols:cs});return '';});
+    rest=rest.replace(/^,\s*/,'').replace(/,\s*$/,'').trim();
+    const cols=(rest===''||rest==='*')?null:rest.split(',').map(s=>s.trim()).filter(Boolean);
+    return{cols:cols,joins:joins};
   }
 
-  function jsonResp(obj,status){
-    return new Response(JSON.stringify(obj),{status:status||200,headers:{'Content-Type':'application/json'}});
-  }
-
-  function fbFallbackResponse(url,init){
-    const method=((init&&init.method)||(url.method)||'GET').toUpperCase();
-    const parsed=parseRestUrl(url);
-
-    // POST = insert or RPC
-    if(method==='POST'){
-      const body=(init&&init.body)?JSON.parse(init.body):{};
-      if(url.includes('/rpc/')){
-        const rpcName=url.split('/rpc/')[1].split('?')[0];
-        return fbHandleRpc(rpcName,body);
-      }
-      if(!parsed)return jsonResp([],201);
-      return fbHandleInsert(parsed.table,body);
-    }
-    if(method==='PATCH'){
-      const body=(init&&init.body)?JSON.parse(init.body):{};
-      if(!parsed)return jsonResp([]);
-      return fbHandleUpdate(parsed,body,init);
-    }
-    if(method==='DELETE'){
-      if(!parsed)return jsonResp([]);
-      return fbHandleDelete(parsed);
-    }
-    if(!parsed)return jsonResp([]);
-    return fbHandleSelect(parsed,init);
-  }
-
-  async function fbHandleSelect(parsed,init){
-    try{
-      const accept=hdr(init,'Accept')||'';
-      const wantsObject=accept.includes('vnd.pgrst.object');
-
-      let rows=await fbQuery(parsed.table,{
-        where:parsed.where,
-        orderBy:parsed.orderBy,
-        limit:undefined
+  async function applyJoins(rows,joins){
+    for(const j of joins){
+      const fk=j.table.replace(/s$/,'')+'_id';
+      const fk2=j.table+'_id';
+      const needed=new Set();
+      rows.forEach(r=>{
+        const v=(r[fk]!==undefined&&r[fk]!==null)?r[fk]:r[fk2];
+        if(v!==undefined&&v!==null)needed.add(String(v));
       });
-      if(rows===null)rows=[];
+      const emb=needed.size?await loadRows(j.table):[];
+      const map={};emb.forEach(r=>{map[String(r.id)]=r;});
+      const want=(j.cols||'').split(',').map(s=>s.trim()).filter(c=>c&&c!=='*');
+      rows.forEach(r=>{
+        const v=(r[fk]!==undefined&&r[fk]!==null)?r[fk]:r[fk2];
+        const src=(v!==undefined&&v!==null)?map[String(v)]:null;
+        if(!src){r[j.table]=null;return;}
+        if(!want.length){r[j.table]={...src};return;}
+        const o={};want.forEach(c=>{o[c]=(src[c]===undefined)?null:src[c];});
+        r[j.table]=o;
+      });
+    }
+    return rows;
+  }
 
-      // client-side IN filters (Firestore whereIn caps at 10 anyway)
-      if(parsed.inFilters.length){
-        rows=rows.filter(r=>parsed.inFilters.every(([key,list])=>list.includes(r[key])));
-      }
+  QB.prototype._run=async function(){
+    try{
+      if(this._op==='insert')return{data:await this._doInsert(),error:null};
+      if(this._op==='update')return{data:await this._doUpdate(),error:null};
+      if(this._op==='delete'){await this._doDelete();return{data:null,error:null};}
+      return{data:await this._doSelect(),error:null};
+    }catch(e){
+      console.warn('db.'+this.table+'.'+this._op+' failed:',e);
+      return{data:null,error:{message:(e&&e.message)||'Query failed'}};
+    }
+  };
 
-      // joins (e.g. sales select=*,customers(name))
-      if(parsed.joins.length&&rows.length){
-        for(const join of parsed.joins){
-          const fkCol=join.table.replace(/s$/,'')+'_id';
-          const fkCol2=join.table+'_id';
-          const ids=new Set();
-          rows.forEach(r=>{const fk=r[fkCol]||r[fkCol2];if(fk!==undefined&&fk!==null)ids.add(String(fk));});
-          if(ids.size){
-            const joinRows=await fbQuery(join.table,{})||[];
-            const joinMap={};
-            joinRows.forEach(j=>{joinMap[String(j.id)]=j;});
-            rows=rows.map(r=>{
-              const fk=r[fkCol]||r[fkCol2];
-              return{...r,[join.table]:(fk!==undefined&&fk!==null)?joinMap[String(fk)]||null:null};
-            });
-          }
+  QB.prototype._doSelect=async function(){
+    let rows=await loadRows(this.table);
+    rows=rows.filter(r=>this._match(r));
+    if(this._orders.length){
+      const orders=this._orders;
+      rows=rows.slice().sort(function(a,b){
+        for(let i=0;i<orders.length;i++){
+          const c=rel(a[orders[i].f],b[orders[i].f]);
+          if(c!==0)return orders[i].asc?c:-c;
         }
-      }
-
-      // offset AFTER ordering/filtering
-      if(parsed.offset)rows=rows.slice(parsed.offset);
-      if(parsed.limit!==null&&parsed.limit!==undefined)rows=rows.slice(0,parsed.limit);
-
-      // PostgREST object mode (.single() / .maybeSingle())
-      if(wantsObject){
-        if(rows.length===1)return jsonResp(rows[0]);
-        return jsonResp({code:'PGRST116',
-          details:'The result contains '+rows.length+' rows',
-          hint:null,
-          message:'JSON object requested, multiple (or no) rows returned'},406);
-      }
-      return jsonResp(rows);
-    }catch(e){
-      console.warn('fbHandleSelect error:',e);
-      return jsonResp([]);
+        return 0;
+      });
     }
-  }
+    if(this._range)rows=rows.slice(this._range[0],this._range[1]+1);
+    if(this._limit!==null&&this._limit!==undefined)rows=rows.slice(0,this._limit);
 
-  async function fbHandleInsert(table,body){
-    try{
-      const docs=Array.isArray(body)?body:[body];
-      const results=[];
-      for(const doc of docs){
-        const ref=FB_BASE().collection(table).doc();
-        const data={...doc};
-        if(data.id===undefined||data.id===null)data.id=(table==='profiles'&&doc.email)?doc.email:Date.now()+Math.floor(Math.random()*1000);
-        data._ts=firebase.firestore.FieldValue.serverTimestamp();
-        await ref.set(data);
-        results.push({...doc,id:data.id});
-      }
-      return jsonResp(results,201);
-    }catch(e){
-      return jsonResp({message:e.message},400);
+    const ps=parseSelect(this._select);
+    if(ps.joins.length&&rows.length)rows=await applyJoins(rows.map(r=>({...r})),ps.joins);
+    else rows=rows.map(r=>({...r}));
+
+    if(ps.cols){
+      rows=rows.map(r=>{
+        const o={};
+        ps.cols.forEach(k=>{o[k]=(r[k]===undefined)?null:r[k];});
+        return o;
+      });
     }
-  }
 
-  async function fbHandleUpdate(parsed,body,init){
-    try{
-      const col=FB_BASE().collection(parsed.table);
-      const targets=[];
-      if(parsed.where.length){
-        let q=col;
-        parsed.where.forEach(([f,op,v])=>{q=q.where(f,op,v);});
-        const snap=await q.get();
-        snap.docs.forEach(d=>targets.push(d));
-      }
-      const before=[];
-      for(const doc of targets){
-        before.push({...doc.data(),id:doc.id});
-        await doc.ref.update({...body,_ts:firebase.firestore.FieldValue.serverTimestamp()});
-      }
-      const accept=hdr(init,'Accept')||'';
-      if(accept.includes('return=representation')||accept.includes('json')){
-        const updated=targets.map(d=>{const v={...before[targets.indexOf(d)]};return{...v,...body};});
-        return jsonResp(updated);
-      }
-      return jsonResp([]);
-    }catch(e){
-      return jsonResp({message:e.message},400);
+    if(this._mode==='single'){
+      if(rows.length!==1)throw new Error('JSON object requested, multiple (or no) rows returned');
+      return rows[0];
     }
-  }
+    if(this._mode==='maybe'){
+      if(rows.length>1)throw new Error('JSON object requested, multiple (or no) rows returned');
+      return rows.length?rows[0]:null;
+    }
+    return rows;
+  };
 
-  async function fbHandleDelete(parsed){
-    try{
-      const col=FB_BASE().collection(parsed.table);
-      let q=col;
-      parsed.where.forEach(([f,op,v])=>{q=q.where(f,op,v);});
-      const snap=await q.get();
+  QB.prototype._doInsert=async function(){
+    const docs=Array.isArray(this._values)?this._values:[this._values];
+    const rows=await loadRows(this.table);
+    let maxId=nextIdFrom(rows);
+    const out=[];
+    for(const d of docs){
+      let id=d.id;
+      if(id===undefined||id===null||id===''){id=maxId;maxId=id+1;}
+      const row=clean({...d,id:id});
+      await FB_BASE().collection(this.table).doc(String(id)).set(row);
+      writeAudit('INSERT',this.table,id,null,row);
+      out.push(row);
+    }
+    dropCache(this.table);
+    return out;
+  };
+
+  QB.prototype._doUpdate=async function(){
+    const patch=clean(this._values||{});
+    const rows=await loadRows(this.table);
+    const targets=rows.filter(r=>this._match(r));
+    const out=[];
+    for(const t of targets){
+      const id=t.id;
+      const before={...t};
+      const body={...patch,id:id};
+      await FB_BASE().collection(this.table).doc(String(id)).set(body,{merge:true});
+      const after={...t,...body};
+      writeAudit('UPDATE',this.table,id,before,after);
+      out.push(after);
+    }
+    dropCache(this.table);
+    return out;
+  };
+
+  QB.prototype._doDelete=async function(){
+    const rows=await loadRows(this.table);
+    const targets=rows.filter(r=>this._match(r));
+    if(targets.length){
       const batch=fbDb.batch();
-      snap.docs.forEach(d=>batch.delete(d.ref));
+      targets.forEach(t=>{batch.delete(FB_BASE().collection(this.table).doc(String(t.id)));});
       await batch.commit();
-      return jsonResp([]);
-    }catch(e){
-      return jsonResp({message:e.message},400);
+      targets.forEach(t=>{writeAudit('DELETE',this.table,t.id,{...t},null);});
     }
-  }
+    dropCache(this.table);
+    return null;
+  };
 
   // ========================================================
-  // RPC HANDLER — Firebase-native implementations
+  // RPC — Firebase-native implementations of Postgres fns
   // ========================================================
-  function fbHandleRpc(name,body){
-    const handlers={
-      create_sale:fbCreateSale,
-      receive_payment:fbReceivePayment,
-      create_purchase:fbCreatePurchase
-    };
-    const handler=handlers[name];
-    if(!handler){
-      return jsonResp({message:'RPC not available in Firebase mode: '+name},400);
-    }
-    return handler(body);
-  }
-
   async function fbCreateSale(body){
-    try{
-      const{p_customer_id,p_items,p_paid,p_mode}=body;
-      let v_total=0;
-      const saleId=Date.now();
+    const{p_customer_id,p_items,p_paid,p_mode}=body;
+    let v_total=0;
+    const saleRows=await loadRows('sales');
+    const saleId=nextIdFrom(saleRows);
+    const invRow=saleRows.map(r=>+r.invoice_no).filter(n=>!isNaN(n));
+    const invoice_no=invRow.length?Math.max.apply(null,invRow)+1:saleId;
+    const now=new Date().toISOString();
+    const uid=fbAuth.currentUser?fbAuth.currentUser.uid:null;
+    const itemRows=[];
+    const movements=[];
 
-      for(const it of(p_items||[])){
-        const itemAmount=it.qty*it.unit_price;
-        v_total+=itemAmount;
-        const prodRef=FB_BASE().collection('products').doc(String(it.product_id));
-        const prodDoc=await prodRef.get();
-        if(prodDoc.exists){
-          const curStock=+(prodDoc.data().current_stock||0);
-          await prodRef.update({current_stock:curStock-(+it.qty),updated_at:new Date().toISOString(),
-            _ts:firebase.firestore.FieldValue.serverTimestamp()});
-          await FB_BASE().collection('stock_movements').add({
-            product_id:it.product_id,qty:-it.qty,reason:'sale',
-            ref_table:'sales',ref_id:saleId,created_at:new Date().toISOString()
-          });
-        }
-        await FB_BASE().collection('sale_items').add({
-          sale_id:saleId,product_id:it.product_id,qty:it.qty,
-          unit_price:it.unit_price,amount:itemAmount
-        });
+    for(const it of(p_items||[])){
+      const itemAmount=it.qty*it.unit_price;
+      v_total+=itemAmount;
+      const prodRows=await loadRows('products');
+      const prod=prodRows.find(p=>eqMatch(p.id,it.product_id));
+      if(prod){
+        const newStock=+(+prod.current_stock||0)-(+it.qty);
+        await FB_BASE().collection('products').doc(String(prod.id)).set(
+          {current_stock:newStock,updated_at:now},{merge:true});
+        movements.push({product_id:it.product_id,qty:-it.qty,reason:'sale',
+          ref_table:'sales',ref_id:saleId,created_at:now,created_by:uid});
       }
-
-      const due=Math.max(v_total-(p_paid||0),0);
-      await FB_BASE().collection('sales').doc(String(saleId)).set({
-        id:saleId,customer_id:p_customer_id||null,total:v_total,
-        paid_amount:p_paid||0,due_amount:due,payment_mode:p_mode||'cash',
-        status:'completed',created_at:new Date().toISOString(),
-        created_by:fbAuth.currentUser?fbAuth.currentUser.uid:null,
-        _ts:firebase.firestore.FieldValue.serverTimestamp()
-      });
-
-      if(p_customer_id&&due>0){
-        const custRef=FB_BASE().collection('customers').doc(String(p_customer_id));
-        const custDoc=await custRef.get();
-        if(custDoc.exists){
-          const curBal=+(custDoc.data().balance||0);
-          await custRef.update({balance:curBal+due,updated_at:new Date().toISOString(),
-            _ts:firebase.firestore.FieldValue.serverTimestamp()});
-        }
-      }
-      return jsonResp(saleId);
-    }catch(e){
-      return jsonResp({message:e.message},400);
+      itemRows.push({sale_id:saleId,product_id:it.product_id,qty:it.qty,
+        unit_price:it.unit_price,cost_at_sale:prod?+(prod.purchase_price||0):0,
+        amount:itemAmount});
     }
+
+    const itemCol=FB_BASE().collection('sale_items');
+    let itemId=nextIdFrom(await loadRows('sale_items'));
+    for(const r of itemRows){await itemCol.doc(String(itemId)).set(r);itemId++;}
+
+    const due=Math.max(v_total-(+p_paid||0),0);
+    const sale={id:saleId,invoice_no:invoice_no,customer_id:(p_customer_id===undefined?null:p_customer_id),
+      total:v_total,paid_amount:+p_paid||0,due_amount:due,payment_mode:p_mode||'cash',
+      notes:null,created_at:now,created_by:uid};
+    await FB_BASE().collection('sales').doc(String(saleId)).set(sale);
+    writeAudit('INSERT','sales',saleId,null,sale);
+
+    if(movements.length){
+      const mvCol=FB_BASE().collection('stock_movements');
+      let mvId=nextIdFrom(await loadRows('stock_movements'));
+      for(const m of movements){await mvCol.doc(String(mvId)).set(m);mvId++;}
+    }
+
+    if(p_customer_id!==null&&p_customer_id!==undefined){
+      const custRows=await loadRows('customers');
+      const cust=custRows.find(c=>eqMatch(c.id,p_customer_id));
+      if(cust){
+        let bal=+cust.balance||0;
+        if(due>0)bal+=due;
+        else if((+p_paid||0)>v_total)bal-=(+p_paid-v_total);
+        else if(due===0&&(+p_paid||0)===v_total)bal=bal;
+        await FB_BASE().collection('customers').doc(String(cust.id)).set(
+          {balance:bal,updated_at:now},{merge:true});
+      }
+    }
+
+    dropCache('sales');dropCache('sale_items');dropCache('products');
+    dropCache('stock_movements');dropCache('customers');
+    return saleId;
   }
 
   async function fbReceivePayment(body){
-    try{
-      const{p_customer_id,p_amount,p_mode,p_note}=body;
-      await FB_BASE().collection('payments').add({
-        id:Date.now(),direction:'received',customer_id:p_customer_id,amount:p_amount,
-        mode:p_mode||'cash',note:p_note||null,created_at:new Date().toISOString(),
-        created_by:fbAuth.currentUser?fbAuth.currentUser.uid:null,
-        _ts:firebase.firestore.FieldValue.serverTimestamp()
-      });
-      const custRef=FB_BASE().collection('customers').doc(String(p_customer_id));
-      const custDoc=await custRef.get();
-      if(custDoc.exists){
-        const curBal=+(custDoc.data().balance||0);
-        await custRef.update({balance:curBal-p_amount,updated_at:new Date().toISOString(),
-          _ts:firebase.firestore.FieldValue.serverTimestamp()});
+    const{p_customer_id,p_amount,p_mode,p_note}=body;
+    const now=new Date().toISOString();
+    const uid=fbAuth.currentUser?fbAuth.currentUser.uid:null;
+    const payRows=await loadRows('payments');
+    const payId=nextIdFrom(payRows);
+    const pay={id:payId,direction:'received',customer_id:p_customer_id,
+      supplier_id:null,amount:+p_amount||0,mode:p_mode||'cash',note:p_note||null,
+      created_at:now,created_by:uid};
+    await FB_BASE().collection('payments').doc(String(payId)).set(pay);
+    writeAudit('INSERT','payments',payId,null,pay);
+
+    if(p_customer_id!==null&&p_customer_id!==undefined){
+      const custRows=await loadRows('customers');
+      const cust=custRows.find(c=>eqMatch(c.id,p_customer_id));
+      if(cust){
+        await FB_BASE().collection('customers').doc(String(cust.id)).set(
+          {balance:(+cust.balance||0)-(+p_amount||0),updated_at:now},{merge:true});
       }
-      return jsonResp(null);
-    }catch(e){
-      return jsonResp({message:e.message},400);
     }
+    dropCache('payments');dropCache('customers');
+    return null;
   }
 
   async function fbCreatePurchase(body){
-    try{
-      const{p_supplier,p_items,p_paid}=body;
-      const purId=Date.now();
-      let v_total=0;
-      for(const it of(p_items||[])){
-        v_total+=it.qty*(it.unit_cost||0);
-        const prodRef=FB_BASE().collection('products').doc(String(it.product_id));
-        const prodDoc=await prodRef.get();
-        if(prodDoc.exists){
-          const d=prodDoc.data();
-          const upd={current_stock:+(d.current_stock||0)+(+it.qty),updated_at:new Date().toISOString(),
-            _ts:firebase.firestore.FieldValue.serverTimestamp()};
-          if(it.unit_cost>0)upd.purchase_price=it.unit_cost;
-          await prodRef.update(upd);
-          await FB_BASE().collection('stock_movements').add({
-            product_id:it.product_id,qty:it.qty,reason:'purchase',
-            ref_table:'purchases',ref_id:purId,created_at:new Date().toISOString()
-          });
-        }
-        await FB_BASE().collection('purchase_items').add({
-          purchase_id:purId,product_id:it.product_id,qty:it.qty,
-          unit_cost:it.unit_cost||0,amount:it.qty*(it.unit_cost||0)
-        });
+    const{p_supplier,p_items,p_paid}=body;
+    const purRows=await loadRows('purchases');
+    const purId=nextIdFrom(purRows);
+    const now=new Date().toISOString();
+    const uid=fbAuth.currentUser?fbAuth.currentUser.uid:null;
+    let v_total=0;
+    const itemRows=[];
+    const movements=[];
+    const prodUpdates={};
+
+    for(const it of(p_items||[])){
+      const amt=it.qty*(it.unit_cost||0);
+      v_total+=amt;
+      const prodRows=await loadRows('products');
+      const prod=prodRows.find(p=>eqMatch(p.id,it.product_id));
+      if(prod){
+        const upd={current_stock:+(prod.current_stock||0)+(+it.qty),updated_at:now};
+        if(it.unit_cost>0)upd.purchase_price=it.unit_cost;
+        prodUpdates[String(prod.id)]=upd;
+        movements.push({product_id:it.product_id,qty:+it.qty,reason:'purchase',
+          ref_table:'purchases',ref_id:purId,created_at:now,created_by:uid});
       }
-      await FB_BASE().collection('purchases').doc(String(purId)).set({
-        id:purId,supplier_name:p_supplier||'---',total:v_total,
-        paid_amount:p_paid||0,created_at:new Date().toISOString(),
-        _ts:firebase.firestore.FieldValue.serverTimestamp()
-      });
-      return jsonResp(purId);
+      itemRows.push({purchase_id:purId,product_id:it.product_id,qty:it.qty,
+        unit_cost:it.unit_cost||0,amount:amt});
+    }
+
+    for(const docId in prodUpdates){
+      await FB_BASE().collection('products').doc(docId).set(prodUpdates[docId],{merge:true});
+    }
+    const itCol=FB_BASE().collection('purchase_items');
+    let itId=nextIdFrom(await loadRows('purchase_items'));
+    for(const r of itemRows){await itCol.doc(String(itId)).set(r);itId++;}
+
+    const pur={id:purId,supplier_name:p_supplier||'---',total:v_total,
+      paid_amount:+p_paid||0,notes:null,created_at:now,created_by:uid};
+    await FB_BASE().collection('purchases').doc(String(purId)).set(pur);
+    writeAudit('INSERT','purchases',purId,null,pur);
+
+    if(movements.length){
+      const mvCol=FB_BASE().collection('stock_movements');
+      let mvId=nextIdFrom(await loadRows('stock_movements'));
+      for(const m of movements){await mvCol.doc(String(mvId)).set(m);mvId++;}
+    }
+
+    dropCache('purchases');dropCache('purchase_items');dropCache('products');
+    dropCache('stock_movements');
+    return purId;
+  }
+
+  async function rpc(name,args){
+    if(!FB_CONFIGURED)return{data:null,error:{message:'Firebase not configured'}};
+    try{
+      if(name==='create_sale')return{data:await fbCreateSale(args||{}),error:null};
+      if(name==='receive_payment'){await fbReceivePayment(args||{});return{data:null,error:null};}
+      if(name==='create_purchase')return{data:await fbCreatePurchase(args||{}),error:null};
+      return{data:null,error:{message:'Unknown RPC: '+name}};
     }catch(e){
-      return jsonResp({message:e.message},400);
+      console.warn('rpc '+name+' failed:',e);
+      return{data:null,error:{message:(e&&e.message)||'Operation failed'}};
     }
   }
 
   // ========================================================
-  // REALTIME LISTENERS
+  // db.auth — Firebase Authentication (Supabase-compatible)
   // ========================================================
-  window.onFirebaseChange=function(collection,callback){
-    if(!FB_CONFIGURED)return function(){};
-    return FB_BASE().collection(collection)
-      .onSnapshot(snapshot=>{
-        const changes=[];
-        snapshot.docChanges().forEach(change=>{
-          changes.push({type:change.type,id:change.doc.id,data:change.doc.data()});
-        });
-        if(changes.length>0)callback(changes);
-      },err=>{});
+  const authShim={
+    async signInWithPassword(creds){
+      if(!FB_CONFIGURED)return{data:null,error:{message:'Firebase not configured'}};
+      try{
+        const c=await fbAuth.signInWithEmailAndPassword(creds.email,creds.password);
+        return{data:{user:c.user},error:null};
+      }catch(e){return{data:null,error:{message:authErr(e),code:e.code}};}
+    },
+    async getUser(){
+      return{data:{user:FB_CONFIGURED?fbAuth.currentUser:null},error:null};
+    },
+    onAuthStateChange(cb){
+      if(!FB_CONFIGURED)return{data:{subscription:null}};
+      return fbAuth.onAuthStateChanged(function(u){
+        try{cb(u?'SIGNED_IN':'SIGNED_OUT',{user:u});}catch(e){}
+      });
+    },
+    async signOut(){await fbLogout();return{data:null,error:null};},
+    async resetPasswordForEmail(email){
+      if(!FB_CONFIGURED)return{data:null,error:{message:'Firebase not configured'}};
+      try{
+        await fbAuth.sendPasswordResetEmail(email);
+        return{data:null,error:null};
+      }catch(e){return{data:null,error:{message:authErr(e),code:e.code}};}
+    },
+    async signInWithOAuth(opts){
+      if(!FB_CONFIGURED)return{data:null,error:{message:'Firebase not configured'}};
+      if(!opts||opts.provider!=='google')
+        return{data:null,error:{message:'Only Google sign-in is supported'}};
+      try{
+        const provider=new firebase.auth.GoogleAuthProvider();
+        const c=await fbAuth.signInWithPopup(provider);
+        return{data:{user:c.user},error:null};
+      }catch(e){return{data:null,error:{message:authErr(e),code:e.code}};}
+    }
   };
 
-  window.FB_STATUS={configured:FB_CONFIGURED,sid:SID,mode:FB_CONFIGURED?'firebase-primary':'supabase-only'};
-  console.log('FB_SYNC v3 loaded. Mode:',FB_CONFIGURED?'Firebase PRIMARY + Supabase backup':'Supabase only');
+  // ========================================================
+  // window.db — the app-facing facade
+  // ========================================================
+  window.db={
+    from:function(table){return new QB(table);},
+    rpc:rpc,
+    auth:authShim
+  };
+
+  window.FB_STATUS={configured:FB_CONFIGURED,sid:SID,mode:FB_CONFIGURED?'firebase-only':'not-configured'};
+  console.log('firebase-sync v4 loaded. Mode:',FB_CONFIGURED?'Firebase (Auth + Firestore)':'NOT CONFIGURED');
 })();

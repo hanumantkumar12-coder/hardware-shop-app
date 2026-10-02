@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#1a8917">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' https://www.gstatic.com data:; connect-src 'self' https://*.supabase.co https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://*.supabase.co wss://*.firebaseio.com; font-src 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' https://www.gstatic.com data:; connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com wss://*.firebaseio.com; font-src 'self';">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="DENY">
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -14,7 +14,6 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>HK Shop Hisaab</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
@@ -240,7 +239,7 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 
 <div class="setup-banner" id="setupBanner" style="display:none">
   <span style="font-size:18px">⚠️</span>
-  <div><b>Setup pending:</b> Open <b>config.js</b> and paste your Supabase URL + anon key.</div>
+  <div><b>Setup pending:</b> Open <b>config.js</b> and paste your Firebase config.</div>
 </div>
 
 <!-- ==================== AUTH ==================== -->
@@ -294,8 +293,8 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
 
 <script>
 /* ================= CONFIG GUARD ================= */
-const CONFIGURED = SUPABASE_URL && !SUPABASE_URL.includes('PASTE_');
-const db = CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const CONFIGURED = typeof FB_CONFIGURED!=='undefined' && FB_CONFIGURED;
+const db = CONFIGURED ? window.db : null;
 if (!CONFIGURED) document.getElementById('setupBanner').style.display = 'flex';
 
 /* ================= i18n ================= */
@@ -318,7 +317,7 @@ const L = {
   noData:"Nothing here yet.",saved:"Saved ✓",confirmDel:"Delete this?",low:"LOW!",
   whoChanged:"Who changed what"},
   hi:{appTitle:"शॉप हिसाब",authSub:"स्टॉक • बिक्री • उधार • ऑडिट",login:"लॉगिन",logout:"लॉगआउट",email:"ईमेल",pass:"पासवर्ड",
-  inviteNote:"नया सदस्य? मालिक Supabase → Auth → Users से invite करे।",
+  inviteNote:"नया सदस्य? मालिक Firebase Console → Authentication से जोड़े।",
   googleBtn:"Google से जारी रखें",
   navHome:"होम",navStock:"स्टॉक",navSale:"बिक्री",navKhata:"खाता",navMore:"और",
   todaySale:"आज की बिक्री",monthSale:"इस महीने",totalUdhaar:"ग्राहक उधार",lowStock:"कम स्टॉक",custAdvance:"ग्राहक अग्रिम",supDues:"सप्लायर बाकी",supAdvance:"सप्लायर अग्रिम",totalItems:"कुल सामान",
@@ -358,70 +357,37 @@ const AV=['green','blue','orange','red','purple','teal'];
 function avatarColor(name){let h=0;for(let i=0;i<(name||'').length;i++)h=name.charCodeAt(i)+((h<<5)-h);return AV[Math.abs(h)%AV.length];}
 function avatarInitial(name){return (name||'?')[0].toUpperCase();}
 
-/* ================= AUTH — Firebase primary ================= */
+/* ================= AUTH — Firebase ================= */
 async function doLogin(){
   if(!CONFIGURED)return toast('Edit config.js first!');
   const email=$('li-email').value.trim(),pass=$('li-pass').value;
   if(!email||!pass)return toast('Email & password required');
-  // 1) Try Firebase first (primary — never pauses)
-  if(FB_CONFIGURED){
-    const fbRes=await fbLogin(email,pass);
-    if(fbRes.user)return boot();
-  }
-  // 2) Fallback: Supabase (existing users / Supabase-only)
-  let sbOK=false,sbErr=null;
-  try{
-    const{error}=await db.auth.signInWithPassword({email,password:pass});
-    if(error){sbErr=error.message;}else{sbOK=true;}
-  }catch(e){sbErr=String(e&&e.message||e);}
-  if(sbOK){
-    // Supabase verified password — migrate account to Firebase (best-effort)
-    if(FB_CONFIGURED)await fbMigrateLogin(email,pass);
-    return boot();
-  }
-  // 3) Both failed — show the clearest error
-  return toast('⚠ '+(sbErr||'Login failed'));
+  const res=await fbLogin(email,pass);
+  if(res.user)return boot();
+  return toast('⚠ '+(res.error&&res.error.message||'Login failed'));
 }
 async function doGoogle(){
   if(!CONFIGURED)return toast('Setup pending!');
-  const{error}=await db.auth.signInWithOAuth({provider:'google',
-    options:{redirectTo:location.origin+location.pathname}});
-  if(error)toast('⚠ '+error.message);
+  const res=await db.auth.signInWithOAuth({provider:'google'});
+  if(res.error)toast('⚠ '+res.error.message);
 }
 async function doForgotPass(){
   if(!CONFIGURED)return toast('Edit config.js first!');
   const email=prompt('Enter your email address:');
   if(!email)return;
-  if(FB_CONFIGURED){
-    try{await fbAuth.sendPasswordResetEmail(email);toast('Password reset email sent!');return;}catch(e){}
-  }
-  const{error}=await db.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
-  if(error)return toast('⚠ '+error.message);
-  toast('Password reset email sent! Check your inbox.');
+  try{
+    await fbAuth.sendPasswordResetEmail(email.trim());
+    toast('Password reset email sent! Check your inbox.');
+  }catch(e){toast('⚠ '+(e.message||'Could not send email'));}
 }
 async function logout(){await fbLogout();location.reload();}
 async function boot(){
   if(!CONFIGURED)return;
   try{
-    // Firebase session first (always available)
-    let user=null;
-    if(FB_CONFIGURED){
-      user=await fbGetCurrentUser();
-    }
-    // Fallback to Supabase session
-    if(!user){
-      try{const{data}=await db.auth.getUser();user=data.user;}catch(e){}
-    }
+    const user=await fbGetCurrentUser();
     if(!user)return;
-    // Get profile — Firestore first, Supabase fallback
-    let prof=null;
-    if(FB_CONFIGURED){
-      prof=await fbGetProfile(user.id,user.email);
-    }
-    if(!prof){
-      try{prof=await one(db.from('profiles').select('*').eq('id',user.id).maybeSingle());}catch(e){prof=null;}
-    }
-    if(!prof){prof={name:user.email,role:'owner'};}
+    let prof=await fbGetProfile(user.uid||user.id,user.email);
+    if(!prof)prof={name:user.email,role:'owner'};
     meProfile={...prof,email:user.email};
     $('v-auth').style.display='none';
     $('hdr').style.display='flex';$('app').style.display='block';$('navbar').style.display='flex';
@@ -451,7 +417,7 @@ function showPage(v){
 /* ================= HOME ================= */
 async function rHome(){
   const v=$('v-home');
-  if(!db||!CONFIGURED){v.innerHTML='<div class="empty-state"><div class="empty-icon">⚙️</div><p>Supabase not configured — edit config.js</p></div>';return;}
+  if(!db||!CONFIGURED){v.innerHTML='<div class="empty-state"><div class="empty-icon">⚙️</div><p>Firebase not configured — edit config.js</p></div>';return;}
   try{
   const now=new Date();
   const todayLocal=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
@@ -570,13 +536,10 @@ async function saveProduct(id){
     current_stock:+($('pf-stk').value||0),reorder_level:+($('pf-min').value||0)};
   if(!rec.name)return toast('Name?');
   const q=id?db.from('products').update(rec).eq('id',id):db.from('products').insert(rec).select();
-  const data=await one(q);
-  if(data&&data[0])dualWrite('products',data[0].id,data[0],id?'update':'insert');
-  else if(id)dualWrite('products',id,rec,'update');
-  syncAllToFirebase();
+  await one(q);
   closeModal();toast(t('saved'));loadProducts('');render('stock');
 }
-async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));dualDelete('products',id);syncAllToFirebase();closeModal();render('stock');}
+async function delProduct(id){if(!confirm(t('confirmDel')))return;await one(db.from('products').delete().eq('id',id));closeModal();render('stock');}
 function adjustStock(i){
   const p=window._prods[i];
   modal(`<h3>📦 Adjust Stock: ${esc(p.name)}</h3>
@@ -601,7 +564,6 @@ async function saveAdjustment(pid){
   else newStock=qty;
   await one(db.from('products').update({current_stock:newStock,updated_at:new Date().toISOString()}).eq('id',pid));
   await one(db.from('stock_movements').insert({product_id:pid,qty:type==='remove'?-qty:type==='add'?qty:newStock-(+prod.current_stock),reason:reason,ref_table:'adjustment',ref_id:null}));
-  syncAllToFirebase();
   closeModal();toast('Stock adjusted!');loadProducts('');render('stock');
 }
 
@@ -687,8 +649,6 @@ async function saveCustFromSale(){
     address:$('cf-ad').value.trim()||null,balance:+($('cf-bal').value||0)};
   if(!rec.name)return toast('Name?');
   const data=await one(db.from('customers').insert(rec).select());
-  if(data&&data[0])dualWrite('customers',data[0].id,data[0],'insert');
-  syncAllToFirebase();
   closeModal();toast(t('saved'));
   const custs=await one(db.from('customers').select('id,name').order('name'));
   const sel=$('sl-cust');
@@ -702,7 +662,6 @@ async function saveSale(){
   const mode=cash>0&&upi>0?'mixed':cash>0?'cash':upi>0?'upi':'credit';
   const items=cart.map(c=>({product_id:c.id,qty:c.qty,unit_price:c.price}));
   const sid=await one(db.rpc('create_sale',{p_customer_id:saleCust?+saleCust:null,p_items:items,p_paid:paid,p_mode:mode}));
-  syncAllToFirebase();
   closeModal&&0;toast(t('saved')+' #'+sid);
   const custName=saleCust?$('sl-cust').selectedOptions[0].textContent:t('walkIn');
   const custObj=saleCust?window._saleCusts?.find(c=>c.id==saleCust):null;
@@ -801,8 +760,6 @@ async function saveCust(id){
   else rec.balance=+($('cf-bal').value||0);
   if(!rec.name)return toast('Name?');
   await one(id?db.from('customers').update(rec).eq('id',id):db.from('customers').insert(rec));
-  dualWrite('customers',id||Date.now(),rec,id?'update':'insert');
-  syncAllToFirebase();
   closeModal();toast(t('saved'));loadCusts('');
 }
 async function openKhata(i){
@@ -842,8 +799,6 @@ function payModal(cid,i){
 async function savePay(cid,i){
   const amt=+($('py-amt').value||0);if(!amt)return toast('Amount?');
   await one(db.rpc('receive_payment',{p_customer_id:cid,p_amount:amt,p_mode:$('py-mode').value,p_note:$('py-note').value||null}));
-  dualWrite('payments',Date.now(),{direction:'received',customer_id:cid,amount:amt,mode:$('py-mode').value,note:$('py-note').value||null},'insert');
-  syncAllToFirebase();
   closeModal();toast(t('saved'));loadCusts('');
 }
 function waRemind(i){
@@ -917,7 +872,6 @@ async function saveSupplierPay(sid){
   await one(db.from('payments').insert({direction:'paid',supplier_id:sid,amount:amt,mode:'cash',note:note}));
   const newBal=+s.balance - amt;
   await one(db.from('suppliers').update({balance:newBal}).eq('id',sid));
-  syncAllToFirebase();
   closeModal();toast('Payment saved!');render('more');
 }
 
@@ -968,7 +922,7 @@ function rMore(){
     <div class="menu-item" onclick="exportCsv('sales')"><div class="menu-icon blue">🧾</div><div class="menu-text">Sales CSV</div><div class="menu-arrow">›</div></div>
     <div class="menu-item" onclick="exportCsv('payments')"><div class="menu-icon blue">💵</div><div class="menu-text">Payments CSV</div><div class="menu-arrow">›</div></div>
   </div>
-  <p style="text-align:center;font-size:12px;color:var(--text2);margin-top:16px;line-height:1.6">💾 Backup weekly · 🔒 Audit tamper-proof<br>100% lifetime-free: GitHub Pages + Supabase Free</p>`;
+  <p style="text-align:center;font-size:12px;color:var(--text2);margin-top:16px;line-height:1.6">💾 Backup weekly · 🔒 Audit tamper-proof<br>100% lifetime-free: GitHub Pages + Firebase Free</p>`;
 }
 /* -------- purchases -------- */
 async function showPurchaseHistory(){
@@ -1024,8 +978,6 @@ async function savePur(){
   const paid=+($('pu-paid')?.value||0);
   const mode=$('pu-mode')?.value||'cash';
   await one(db.rpc('create_purchase',{p_supplier:$('pu-sup').value||'—',p_items:items,p_paid:paid}));
-  dualWrite('purchases',Date.now(),{supplier_name:$('pu-sup').value||'—',paid_amount:paid,items:items},'insert');
-  syncAllToFirebase();
   closeModal();toast(t('saved')+' — stock updated');render('more');
 }
 /* -------- Expenses -------- */
@@ -1050,8 +1002,6 @@ async function saveExpense(){
   };
   if(!rec.amount)return toast('Amount?');
   await one(db.from('expenses').insert(rec));
-  dualWrite('expenses',Date.now(),rec,'insert');
-  syncAllToFirebase();
   closeModal();toast('Expense saved!');
 }
 async function showExpenses(){
@@ -1150,9 +1100,8 @@ async function returnSale(sid){
         await one(db.from('customers').update({balance:+cust.balance- +sale.due_amount}).eq('id',sale.customer_id));
       }
     }
-    // Mark sale as voided (aud_sales trigger logs this automatically — manual audit_log insert removed: wrong columns + no INSERT policy)
+    // Mark sale as voided (logged automatically by the Firebase data layer)
     await one(db.from('sales').update({status:'voided',due_amount:0,updated_at:new Date().toISOString()}).eq('id',sid));
-    syncAllToFirebase();
     closeModal();toast('Sale voided & stock restored!');
   }catch(e){toast('Error: '+e.message);}
 }
@@ -1676,9 +1625,8 @@ async function filterPurchases(){
     <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(p.total)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:10px"><p>No purchases found</p></div>';
 }
 if(CONFIGURED){
-  // Firebase auth listener (primary) + Supabase listener (backup)
-  if(FB_CONFIGURED){fbAuth.onAuthStateChanged(u=>{if(u&&!meProfile)boot();});}
-  db.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!meProfile)boot();});boot();
+  fbAuth.onAuthStateChanged(u=>{if(u&&!meProfile)boot();});
+  boot();
   /* Session timeout - 15 min idle */
   let _sessionTimer;
   function resetSessionTimer(){

@@ -1,4 +1,4 @@
-const CACHE = 'shophisaab-v7';
+const CACHE = 'shophisaab-v8';
 const SHELL = ['./config.js', './firebase-sync.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -14,7 +14,7 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.hostname.includes('supabase')) return;
+  if (e.request.method !== 'GET') return;
 
   if (url.pathname.endsWith('/index.html') || url.pathname === '/' || url.pathname === '') {
     e.respondWith(fetch(e.request));
