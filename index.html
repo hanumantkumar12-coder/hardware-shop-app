@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js"></script>
-<script src="firebase-sync.js"></script>
+<script src="config.js?v=10"></script>
+<script src="firebase-sync.js?v=10"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -346,6 +346,44 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:2});
 const toast=(m)=>{const el=$('toast');el.textContent=m;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200);};
+function authBanner(msg){
+  try{
+    const card=document.querySelector('#v-auth .auth-card');if(!card)return;
+    let b=document.getElementById('authBanner');
+    if(!b){b=document.createElement('div');b.id='authBanner';
+      b.style.cssText='background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:8px 10px;border-radius:10px;font-size:12px;margin:0 0 12px;word-break:break-word;white-space:pre-wrap;text-align:left;line-height:1.5';
+      card.insertBefore(b,card.firstChild);}
+    b.textContent=msg;
+  }catch(e){}
+}
+function showAuthErr(msg){
+  authBanner(msg);
+  try{localStorage.setItem('authErr',Date.now()+'|'+msg);}catch(e){}
+  try{toast('⚠ '+msg);}catch(e){}
+}
+function renderTraceBanner(){
+  try{
+    if($('v-auth').style.display==='none')return;
+    let tr=null;try{tr=JSON.parse(localStorage.getItem('authTrace')||'null');}catch(e){}
+    if(!tr)return;
+    const s=JSON.stringify(tr);
+    if(!(/ERR|oauth|popup|redirect|failed/.test(s)))return;
+    const out=[];
+    if(tr.cb)out.push('click: '+tr.cb);
+    if(tr.oauth)out.push('oauth: '+tr.oauth);
+    if(tr.fb)out.push('google: '+tr.fb);
+    if(tr.rr)out.push('redirect back: '+tr.rr);
+    if(tr.st)out.push('authState: '+tr.st);
+    if(tr.boot)out.push('boot: '+tr.boot);
+    if(tr.fbLogin)out.push('password: '+tr.fbLogin);
+    let extra='';
+    try{
+      const ae=localStorage.getItem('authErr');
+      if(ae){const p=ae.split('|');if(Date.now()-(+p[0])<1800000)extra='\nerror: '+p.slice(1).join('|');}
+    }catch(e){}
+    authBanner('Login debug (screenshot this):\n'+out.join('\n')+extra);
+  }catch(e){}
+}
 function modal(html){$('modalContent').innerHTML=html;$('modalOverlay').classList.add('active');}
 function closeModal(){$('modalOverlay').classList.remove('active');}
 async function one(q){const{data,error}=await q;if(error){toast('⚠ '+error.message);throw error;}return data;}
@@ -368,6 +406,7 @@ async function doLogin(){
 }
 async function doGoogle(){
   if(!CONFIGURED)return toast('Setup pending!');
+  try{atr('cb','Continue with Google');}catch(_){}
   const res=await db.auth.signInWithOAuth({provider:'google'});
   if(res.error)toast('⚠ '+res.error.message);
 }
@@ -384,15 +423,18 @@ async function logout(){await fbLogout();location.reload();}
 async function boot(){
   if(!CONFIGURED)return;
   try{
+    try{atr('boot','start');}catch(_){}
     const user=await fbGetCurrentUser();
-    if(!user)return;
+    if(!user){try{atr('boot','no-user');}catch(_){}return;}
+    try{atr('boot','user:'+(user.email||user.uid));}catch(_){}
     let prof=await fbGetProfile(user.uid||user.id,user.email);
     if(!prof)prof={name:user.email,role:'owner'};
     meProfile={...prof,email:user.email};
     $('v-auth').style.display='none';
+    try{localStorage.removeItem('authTrace');localStorage.removeItem('authErr');const bb=document.getElementById('authBanner');if(bb)bb.remove();}catch(_){}
     $('hdr').style.display='flex';$('app').style.display='block';$('navbar').style.display='flex';
     applyI18n();render('home');
-  }catch(e){console.error('boot failed',e);try{toast('⚠ Login failed: '+((e&&e.message)||e));}catch(_){}$('v-auth').style.display='block';}
+  }catch(e){console.error('boot failed',e);try{atr('boot','ERR '+((e&&e.message)||e));}catch(_){}showAuthErr('Login failed: '+((e&&e.message)||e));$('v-auth').style.display='block';}
 }
 
 /* ================= NAV ================= */
@@ -1625,16 +1667,21 @@ async function filterPurchases(){
     <div class="list-item-right"><div class="list-item-amount" style="font-weight:800">${money(p.total)}</div></div></div>`).join(''):'<div class="empty-state" style="padding:10px"><p>No purchases found</p></div>';
 }
 if(CONFIGURED){
-  fbAuth.onAuthStateChanged(u=>{if(u&&!meProfile)boot();});
+  fbAuth.onAuthStateChanged(u=>{try{atr('st',u?('user:'+(u.email||u.uid)):'null');}catch(_){}if(u&&!meProfile)boot();else renderTraceBanner();});
   boot();
   try{
     fbAuth.getRedirectResult().then(r=>{
+      const v=(r&&r.error)?('ERR '+(r.error.code||r.error.message)):(r&&r.user?('user:'+(r.user.email||r.user.uid)):'no-user-no-error');
+      try{atr('rr',v);}catch(_){}
       if(r&&r.error){
         const m=((r.error.message)||String(r.error.code||'error')).replace(/^Firebase:\s*/,'');
-        toast('⚠ Google sign-in failed: '+m);
+        showAuthErr('Google sign-in failed: '+m);
       }else if(r&&r.user&&!meProfile){boot();}
-    }).catch(()=>{});
+      renderTraceBanner();
+    }).catch(e=>{try{atr('rr','ERR '+((e&&e.message)||e));}catch(_){}renderTraceBanner();});
   }catch(e){}
+  renderTraceBanner();
+  setTimeout(renderTraceBanner,2500);
   /* Session timeout - 15 min idle */
   let _sessionTimer;
   function resetSessionTimer(){

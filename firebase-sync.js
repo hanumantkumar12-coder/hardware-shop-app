@@ -23,6 +23,15 @@
   const FB_BASE=()=>fbDb.collection('shops').doc(SID);
   window.FB_SID=SID;
 
+  // auth step tracer — survives reloads so failures are visible on screen
+  window.atr=function(k,v){
+    try{
+      var t=JSON.parse(localStorage.getItem('authTrace')||'{}');
+      t.t=Date.now();t[k]=v;
+      localStorage.setItem('authTrace',JSON.stringify(t));
+    }catch(e){}
+  };
+
   // ========================================================
   // AUTH helpers
   // ========================================================
@@ -46,8 +55,9 @@
     if(!FB_CONFIGURED)return{error:{message:'Firebase not configured'}};
     try{
       const cred=await fbAuth.signInWithEmailAndPassword(email,pass);
+      if(window.atr)atr('fbLogin','ok');
       return{user:cred.user,error:null};
-    }catch(e){return{error:{message:authErr(e),code:e.code}};}
+    }catch(e){if(window.atr)atr('fbLogin','ERR '+(e.code||e.message));return{error:{message:authErr(e),code:e.code}};}
   };
 
   window.fbLogout=async function(){
@@ -588,18 +598,23 @@
       if(!opts||opts.provider!=='google')
         return{data:null,error:{message:'Only Google sign-in is supported'}};
       const provider=new firebase.auth.GoogleAuthProvider();
+      if(window.atr)atr('oauth','google-attempt');
       try{
         const c=await fbAuth.signInWithPopup(provider);
+        if(window.atr)atr('fb','popup-ok');
         return{data:{user:c.user},error:null};
       }catch(e){
         if(e.code==='auth/popup-blocked'){
+          if(window.atr)atr('fb','popup-blocked→redirect');
           try{
             await fbAuth.signInWithRedirect(provider);
             return{data:null,error:null};
           }catch(e2){
+            if(window.atr)atr('fb','redirectERR:'+(e2.code||e2.message));
             return{data:null,error:{message:authErr(e2)||'Popup blocked — allow popups for this site',code:e2.code}};
           }
         }
+        if(window.atr)atr('fb','ERR '+(e.code||e.message));
         return{data:null,error:{message:authErr(e),code:e.code}};}
     }
   };
