@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=17"></script>
-<script src="firebase-sync.js?v=17"></script>
+<script src="config.js?v=18"></script>
+<script src="firebase-sync.js?v=18"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -254,6 +254,7 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
     <div style="text-align:center;margin-top:10px"><a href="#" onclick="doForgotPass()" style="font-size:13px;color:var(--green);text-decoration:none">Forgot Password?</a></div>
     <div class="auth-divider">OR</div>
     <button class="auth-btn google" onclick="doGoogle()"><img src="https://www.gstatic.com/images/branding/product/1x/gsa_48dp.png" width="18">Continue with Google</button>
+    <button class="auth-btn secondary" onclick="doEmailLink()" style="text-align:center">✉️ Email me a sign-in link</button>
     <div class="auth-note">New member? Ask the owner to invite you.</div>
   </div>
 </div>
@@ -417,6 +418,43 @@ async function doGoogle(){
   try{atr('cb','Continue with Google');}catch(_){}
   const res=await db.auth.signInWithOAuth({provider:'google'});
   if(res.error)toast('⚠ '+res.error.message);
+}
+async function doEmailLink(){
+  if(!CONFIGURED)return toast('Setup pending!');
+  let email=$('li-email').value.trim();
+  if(!email){email=prompt('Enter your email address:')||'';if(!email)return;}
+  email=email.trim();
+  try{atr('cb','Email link');}catch(_){}
+  try{localStorage.setItem('pendingEmail',email);}catch(e){}
+  try{
+    await fbAuth.sendSignInWithEmailLink(email,{url:location.origin+location.pathname,handleCodeInApp:true});
+    toast('✅ Link sent — open it in this browser');
+    authBanner('Sign-in link sent to\n'+email+'\nOpen the link from your inbox on this device.');
+  }catch(e){
+    const m=(e&&e.code==='auth/operation-not-allowed')
+      ?'Enable Email link sign-in in Firebase console → Authentication → Sign-in method'
+      :(((e&&e.message)||String(e))+'').replace(/^Firebase:\s*/,'');
+    try{atr('fb','emaillink-sendERR:'+((e&&e.code)||m));}catch(_){}
+    showAuthErr('Email link failed: '+m);
+  }
+}
+async function handleEmailLinkReturn(){
+  if(!CONFIGURED||!/[?&]oobCode=/.test(location.search))return;
+  let email='';
+  try{email=localStorage.getItem('pendingEmail')||'';}catch(e){}
+  if(!email){try{email=prompt('Enter the email you used for the sign-in link:')||'';}catch(e){}}
+  if(!email)return;
+  try{atr('oauth','email-link-return');}catch(_){}
+  try{
+    const c=await fbAuth.signInWithEmailLink(email.trim(),location.href);
+    try{atr('fb','emaillink-ok:'+((c&&c.user&&c.user.email)||'?'));}catch(_){}
+    try{localStorage.removeItem('pendingEmail');}catch(e){}
+    try{history.replaceState(null,'',location.pathname);}catch(e){}
+boot();
+  }catch(e){
+    try{atr('fb','emaillink-ERR:'+((e&&e.code)||(e&&e.message)));}catch(_){}
+    showAuthErr('Email link failed: '+(((e&&e.message)||e)+'').replace(/^Firebase:\s*/,''));
+  }
 }
 async function doForgotPass(){
   if(!CONFIGURED)return toast('Edit config.js first!');
@@ -1677,6 +1715,7 @@ async function filterPurchases(){
 if(CONFIGURED){
   fbAuth.onAuthStateChanged(u=>{try{atr('st',u?('user:'+(u.email||u.uid)):'null');}catch(_){}if(u&&!meProfile)boot();else renderTraceBanner();});
   boot();
+  handleEmailLinkReturn();
   if(window.__googleTokenReady){
     window.__googleTokenReady.then(function(){renderTraceBanner();}).catch(function(){renderTraceBanner();});
   }else if(!window.__googleFragmentHandled){
