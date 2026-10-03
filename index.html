@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=18"></script>
-<script src="firebase-sync.js?v=18"></script>
+<script src="config.js?v=19"></script>
+<script src="firebase-sync.js?v=19"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -421,22 +421,42 @@ async function doGoogle(){
 }
 async function doEmailLink(){
   if(!CONFIGURED)return toast('Setup pending!');
-  let email=$('li-email').value.trim();
-  if(!email){email=prompt('Enter your email address:')||'';if(!email)return;}
-  email=email.trim();
-  try{atr('cb','Email link');}catch(_){}
-  try{localStorage.setItem('pendingEmail',email);}catch(e){}
   try{
-    await fbAuth.sendSignInWithEmailLink(email,{url:location.origin+location.pathname,handleCodeInApp:true});
-    toast('✅ Link sent — open it in this browser');
-    authBanner('Sign-in link sent to\n'+email+'\nOpen the link from your inbox on this device.');
+    let email=$('li-email').value.trim();
+    if(!email){email=prompt('Enter your email address:')||'';if(!email)return;}
+    email=email.trim();
+    try{atr('cb','Email link');}catch(_){}
+    try{localStorage.setItem('pendingEmail',email);}catch(e){}
+    const appUrl=location.origin+location.pathname;
+    try{
+      await fbAuth.sendSignInWithEmailLink(email,{url:appUrl,handleCodeInApp:true});
+      try{atr('fb','emaillink-sent');}catch(_){}
+      toast('✅ Link sent — open it in this browser');
+      authBanner('Sign-in link sent to\n'+email+'\nOpen the link from your inbox on this device.');
+      return;
+    }catch(e1){
+      try{atr('fb','emaillink-sdkERR:'+((e1&&e1.code)||(e1&&e1.message)));}catch(_){}
+    }
+    // fallback: REST send + use the returned oob link directly (works even if mail relay is down)
+    const res=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:sendSignInWithEmailLink?key='+encodeURIComponent(FIREBASE_CONFIG.apiKey),{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({requestUri:appUrl,email:email,canHandleCodeInApp:true,returnOobLinkForTesting:true})
+    });
+    const j=await res.json();
+    if(!res.ok||!j.oobLink){
+      const m=(((j&&j.error&&j.error.message)||('http '+res.status))+'').replace(/^Firebase:\s*/,'');
+      try{atr('fb','emaillink-restERR:'+m);}catch(_){}
+      showAuthErr('Email link failed: '+m);
+      return;
+    }
+    try{atr('fb','emaillink-rest-ok');}catch(_){}
+    authBanner('Using the link directly (email relay unavailable).');
+    location.href=j.oobLink;
   }catch(e){
-    const m=(e&&e.code==='auth/operation-not-allowed')
-      ?'Enable Email link sign-in in Firebase console → Authentication → Sign-in method'
-      :(((e&&e.message)||String(e))+'').replace(/^Firebase:\s*/,'');
-    try{atr('fb','emaillink-sendERR:'+((e&&e.code)||m));}catch(_){}
-    showAuthErr('Email link failed: '+m);
+    try{atr('fb','emaillink-throw:'+((e&&e.message)||e));}catch(_){}
+    showAuthErr('Email link failed: '+(((e&&e.message)||e)+''));
   }
+  try{renderTraceBanner();}catch(_){}
 }
 async function handleEmailLinkReturn(){
   if(!CONFIGURED||!/[?&]oobCode=/.test(location.search))return;
