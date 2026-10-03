@@ -1,4 +1,4 @@
-const CACHE = 'shophisaab-v9';
+const CACHE = 'shophisaab-v10';
 const SHELL = ['./config.js', './firebase-sync.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -13,21 +13,25 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  const url = new URL(e.request.url);
-  if (e.request.method !== 'GET') return;
+  const req = e.request;
+  if (req.method !== 'GET') return;
 
-  if (url.pathname.endsWith('/index.html') || url.pathname === '/' || url.pathname === '') {
-    e.respondWith(fetch(e.request));
-    return;
-  }
+  let url;
+  try { url = new URL(req.url); } catch (_) { return; }
+
+  // Never touch cross-origin traffic: Firestore / Identity Toolkit calls and the
+  // hidden firebaseauth.com auth iframe must go straight to the network.
+  if (url.origin !== self.location.origin) return;
+
+  if (req.mode === 'navigate') { e.respondWith(fetch(req)); return; }
 
   e.respondWith(
-    fetch(e.request).then(res => {
-      if (res.ok && url.origin === location.origin) {
+    fetch(req).then(res => {
+      if (res && res.ok) {
         const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy));
+        caches.open(CACHE).then(c => c.put(req, copy));
       }
       return res;
-    }).catch(() => caches.match(e.request))
+    }).catch(() => caches.match(req).then(r => r || Response.error()))
   );
 });
