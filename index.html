@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=22"></script>
-<script src="firebase-sync.js?v=22"></script>
+<script src="config.js?v=23"></script>
+<script src="firebase-sync.js?v=23"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -385,6 +385,7 @@ function renderTraceBanner(){
     if(tr.iframes)out.push('auth iframes: '+tr.iframes);
     if(tr.ss)out.push('sessionStorage: '+tr.ss);
     if(tr.idb)out.push('indexedDB: '+tr.idb);
+    if(tr.u)out.push('authwait: '+tr.u);
     if(tr.probe)out.push('firestore probe: '+tr.probe);
     if(tr.mode)out.push('read path: '+tr.mode);
     if(tr.sel)out.push('rows: '+tr.sel);
@@ -491,7 +492,7 @@ async function doForgotPass(){
   }catch(e){toast('⚠ '+(e.message||'Could not send email'));}
 }
 async function logout(){await fbLogout();location.reload();}
-function floatingDbg(){
+function floatingDbg(quiet){
   try{
     let tr=null;try{tr=JSON.parse(localStorage.getItem('authTrace')||'null');}catch(e){}
     if(!tr)return;
@@ -502,6 +503,7 @@ function floatingDbg(){
     if(tr.wmode)lines.push('write: '+tr.wmode);
     if(tr.err)lines.push('JS ERROR: '+tr.err);
     if(tr.boot)lines.push('boot: '+tr.boot);
+    if(tr.u)lines.push('authwait: '+tr.u);
     if(tr.fbLogin)lines.push('password: '+tr.fbLogin);
     if(!lines.length)return;
     let b=document.getElementById('dbgBox');
@@ -515,6 +517,10 @@ function floatingDbg(){
     }
     b.textContent=lines.join('\n')+'\n(tap to dismiss)';
     b.onclick=function(){b.remove();};
+    if(window._dbgTimer)clearInterval(window._dbgTimer);
+    window._dbgTimer=setInterval(function(){
+      try{floatingDbg(true);}catch(e){}
+    },4000);
   }catch(e){}
 }
 async function boot(){
@@ -525,11 +531,13 @@ async function boot(){
     if(!user){try{atr('boot','no-user');}catch(_){}return;}
     try{atr('boot','user:'+(user.email||user.uid));}catch(_){}
     let prof=await fbGetProfile(user.uid||user.id,user.email);
+    try{atr('boot','prof:'+(prof?((prof.name||'?')+'/'+(prof.role||'?')):'null'));}catch(_){}
     if(!prof)prof={name:user.email,role:'owner'};
     meProfile={...prof,email:user.email};
     $('v-auth').style.display='none';
     $('hdr').style.display='flex';$('app').style.display='block';$('navbar').style.display='flex';
     applyI18n();render('home');
+    try{atr('boot','rendered');}catch(_){}
     try{if(window.fbProbe)window.fbProbe();}catch(_){}
     try{setTimeout(floatingDbg,2500);}catch(_){}
   }catch(e){console.error('boot failed',e);try{atr('boot','ERR '+((e&&e.message)||e));}catch(_){}showAuthErr('Login failed: '+((e&&e.message)||e));$('v-auth').style.display='block';}

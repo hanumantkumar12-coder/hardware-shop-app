@@ -210,8 +210,15 @@
     if(!FB_CONFIGURED)return Promise.resolve(null);
     return new Promise(resolve=>{
       let done=false;
-      const unsub=fbAuth.onAuthStateChanged(u=>{if(!done){done=true;unsub();resolve(u);}});
-      setTimeout(()=>{if(!done){done=true;unsub();resolve(fbAuth.currentUser);}},3000);
+      try{window.atr&&atr('u','wait');}catch(e){}
+      const unsub=fbAuth.onAuthStateChanged(u=>{
+        try{window.atr&&atr('u','cb:'+(u?('user:'+(u.email||u.uid)):'null'));}catch(e){}
+        if(!done){done=true;try{unsub();}catch(e){}resolve(u);}
+      });
+      setTimeout(()=>{
+        try{window.atr&&atr('u','timeout->'+(fbAuth.currentUser?'user':'null'));}catch(e){}
+        if(!done){done=true;try{unsub();}catch(e){}resolve(fbAuth.currentUser);}
+      },3000);
     });
   };
 
@@ -896,5 +903,14 @@
   };
 
   window.FB_STATUS={configured:FB_CONFIGURED,sid:SID,mode:FB_CONFIGURED?'firebase-only':'not-configured'};
+  // immediate, boot-independent health probe so the banner always has data
+  setTimeout(function(){
+    try{
+      if(window.fbProbe){
+        window.atr&&atr('probe','start');
+        window.fbProbe();
+      }else{window.atr&&atr('probe','fbProbe-missing');}
+    }catch(e){try{atr('probe','throw:'+(e&&e.message));}catch(_){}}
+  },1200);
   console.log('firebase-sync v4 loaded. Mode:',FB_CONFIGURED?'Firebase (Auth + Firestore)':'NOT CONFIGURED');
 })();
