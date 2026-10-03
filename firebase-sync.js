@@ -256,6 +256,25 @@
   const _cache=new Map();
   const _pending=new Map();
 
+  // ---- circuit breaker -------------------------------------------------
+  // The Firestore SDK WebChannel stalls on some browsers/network stacks
+  // (reads never resolve). Once we see that, stop paying the timeout on
+  // every call and go straight to REST until the cooldown expires.
+  const BREAKER={fails:0,downUntil:0,cooldown:60000};
+  function sdkDown(){return Date.now()<BREAKER.downUntil;}
+  function noteSdkFail(){
+    BREAKER.fails++;
+    if(BREAKER.fails>=2&&!sdkDown()){
+      BREAKER.downUntil=Date.now()+BREAKER.cooldown;
+      if(window.atr)atr('breaker','SDK down for '+Math.round(BREAKER.cooldown/1000)+'s -> REST');
+      console.warn('[firebase-sync] Firestore SDK stalled; using REST for '+BREAKER.cooldown+'ms');
+    }
+  }
+  function noteSdkOk(){
+    if(BREAKER.fails){BREAKER.fails=0;BREAKER.downUntil=0;if(window.atr)atr('breaker','SDK recovered');}
+  }
+  window.fbBreaker=BREAKER;
+
   function withTimeout(p,ms,msg){
     return new Promise((res,rej)=>{
       let done=false;
@@ -346,27 +365,47 @@
     return rows;
   }
   async function docSet(table,id,row,merge){
+    if(sdkDown()){
+      if(window.atr)atr('wmode','rest:'+table+' [breaker]');
+      await restWrite(table,id,row,merge);
+      return;
+    }
     try{
       await withTimeout(FB_BASE().collection(table).doc(String(id)).set(row,merge?{merge:true}:undefined),SDK_TIMEOUT,'sdk-timeout');
+      noteSdkOk();
       if(window.atr)atr('wmode','sdk:'+table);
       return;
     }catch(e){
+      noteSdkFail();
       if(window.atr)atr('wmode','rest:'+table);
-      const tok=await restToken();
-      const r=await fetch(restUrl(table,id),{
-        method:merge?'PATCH':'PUT',
-        headers:{'Authorization':'Bearer '+tok,'Content-Type':'application/json'},
-        body:JSON.stringify({fields:toFields(row)})
-      });
-      if(!r.ok)throw new Error('rest-write-'+r.status);
+      return restWrite(table,id,row,merge);
     }
   }
+  async function restWrite(table,id,row,merge){
+    const tok=await restToken();
+    const r=await fetch(restUrl(table,id),{
+      method:merge?'PATCH':'PUT',
+      headers:{'Authorization':'Bearer '+tok,'Content-Type':'application/json'},
+      body:JSON.stringify({fields:toFields(row)})
+    });
+    if(!r.ok)throw new Error('rest-write-'+r.status);
+  }
   async function docGet(table,id){
+    if(sdkDown()){
+      return restDocGet(table,id);
+    }
     try{
       const d=await withTimeout(FB_BASE().collection(table).doc(String(id)).get(),SDK_TIMEOUT,'sdk-timeout');
+      noteSdkOk();
       if(d.exists)return d.data();
       return null;
     }catch(e){
+      noteSdkFail();
+      return restDocGet(table,id);
+    }
+  }
+  async function restDocGet(table,id){
+    {
       const tok=await restToken();
       const r=await fetch(restUrl(table,id),{headers:{'Authorization':'Bearer '+tok}});
       if(r.status===404)return null;
@@ -376,10 +415,20 @@
     }
   }
   async function docDelete(table,id){
+    if(sdkDown()){
+      return restDocDelete(table,id);
+    }
     try{
       await withTimeout(FB_BASE().collection(table).doc(String(id)).delete(),SDK_TIMEOUT,'sdk-timeout');
+      noteSdkOk();
       return;
     }catch(e){
+      noteSdkFail();
+      return restDocDelete(table,id);
+    }
+  }
+  async function restDocDelete(table,id){
+    {
       const tok=await restToken();
       const r=await fetch(restUrl(table,id),{method:'DELETE',headers:{'Authorization':'Bearer '+tok}});
       if(!r.ok&&r.status!==404)throw new Error('rest-del-'+r.status);
@@ -404,13 +453,20 @@
     if(_pending.has(table))return _pending.get(table);
     const p=(async()=>{
       let rows;
-      try{
-        const snap=await withTimeout(FB_BASE().collection(table).get(),SDK_TIMEOUT,'sdk-timeout');
-        rows=snap.docs.map(docToRow);
-        if(window.atr)atr('mode','sdk:'+table);
-      }catch(e){
-        if(window.atr)atr('mode','rest:'+table+' ['+(((e&&e.code)||(e&&e.message))||e)+']');
+      if(sdkDown()){
+        if(window.atr)atr('mode','rest:'+table+' [breaker]');
         rows=await loadRowsRest(table);
+      }else{
+        try{
+          const snap=await withTimeout(FB_BASE().collection(table).get(),SDK_TIMEOUT,'sdk-timeout');
+          rows=snap.docs.map(docToRow);
+          noteSdkOk();
+          if(window.atr)atr('mode','sdk:'+table);
+        }catch(e){
+          noteSdkFail();
+          if(window.atr)atr('mode','rest:'+table+' ['+(((e&&e.code)||(e&&e.message))||e)+']');
+          rows=await loadRowsRest(table);
+        }
       }
       if(window.atr)atr('sel',table+'='+rows.length);
       _cache.set(table,{ts:Date.now(),rows});

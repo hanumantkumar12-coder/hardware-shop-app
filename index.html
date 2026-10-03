@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=23"></script>
-<script src="firebase-sync.js?v=23"></script>
+<script src="config.js?v=24"></script>
+<script src="firebase-sync.js?v=24"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -390,6 +390,7 @@ function renderTraceBanner(){
     if(tr.mode)out.push('read path: '+tr.mode);
     if(tr.sel)out.push('rows: '+tr.sel);
     if(tr.wmode)out.push('write path: '+tr.wmode);
+    if(tr.breaker)out.push('circuit: '+tr.breaker);
     if(tr.err)out.push('JS ERROR: '+tr.err);
     let extra='';
     try{
@@ -501,7 +502,8 @@ function floatingDbg(quiet){
     if(tr.mode)lines.push('read: '+tr.mode);
     if(tr.sel)lines.push('rows: '+tr.sel);
     if(tr.wmode)lines.push('write: '+tr.wmode);
-    if(tr.err)lines.push('JS ERROR: '+tr.err);
+    if(tr.err)lines.push("JS ERROR: "+tr.err);
+    if(tr.breaker)lines.push("circuit: "+tr.breaker);
     if(tr.boot)lines.push('boot: '+tr.boot);
     if(tr.u)lines.push('authwait: '+tr.u);
     if(tr.fbLogin)lines.push('password: '+tr.fbLogin);
