@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=24"></script>
-<script src="firebase-sync.js?v=24"></script>
+<script src="config.js?v=25"></script>
+<script src="firebase-sync.js?v=25"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -498,16 +498,15 @@ function floatingDbg(quiet){
     let tr=null;try{tr=JSON.parse(localStorage.getItem('authTrace')||'null');}catch(e){}
     if(!tr)return;
     const lines=[];
+    if(tr.breaker)lines.push('circuit: '+tr.breaker);
+    if(tr.err)lines.push('JS ERROR: '+tr.err);
+    if(tr.view)lines.push('view: '+tr.view);
+    if(tr.qerr)lines.push('query: '+tr.qerr);
     if(tr.probe)lines.push('firestore: '+tr.probe);
-    if(tr.mode)lines.push('read: '+tr.mode);
-    if(tr.sel)lines.push('rows: '+tr.sel);
-    if(tr.wmode)lines.push('write: '+tr.wmode);
-    if(tr.err)lines.push("JS ERROR: "+tr.err);
-    if(tr.breaker)lines.push("circuit: "+tr.breaker);
-    if(tr.boot)lines.push('boot: '+tr.boot);
-    if(tr.u)lines.push('authwait: '+tr.u);
-    if(tr.fbLogin)lines.push('password: '+tr.fbLogin);
+    if(tr.home)lines.push('home: '+tr.home);
+    // only nag when something is actually wrong
     if(!lines.length)return;
+    if(!/failed|FAIL|ERR|rest-FAIL|sdk-timeout|breaker|down for/.test(lines.join(' '))&&!window.__dbgPin)return;
     let b=document.getElementById('dbgBox');
     if(!b){
       b=document.createElement('pre');
@@ -555,7 +554,7 @@ function render(v){
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   const map={home:'v-home',stock:'v-stock',sale:'v-sale',khata:'v-khata',more:'v-more'};
   $(map[v]).classList.add('active');
-  ({home:rHome,stock:rStock,sale:rSale,khata:rKhata,more:rMore})[v]().catch(e=>console.error('view error',v,e));
+  ({home:rHome,stock:rStock,sale:rSale,khata:rKhata,more:rMore})[v]().catch(e=>{console.error('view error',v,e);try{atr('view',v+' failed: '+(e&&e.message));}catch(_){}});
 }
 function showPage(v){
   document.querySelectorAll('.nav-item').forEach(b=>{
@@ -575,11 +574,15 @@ async function rHome(){
   const toLocalDate=iso=>{const d=new Date(iso);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
   v.innerHTML='<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
   let sales=[],prods=[],custs=[],supps=[],recentSales=[];
-  try{sales=await one(db.from('sales').select('total,due_amount,created_at'));}catch(e){console.error('sales',e);}
-  try{prods=await one(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock'));}catch(e){console.error('prods',e);}
-  try{custs=await one(db.from('customers').select('id,name,balance'));}catch(e){console.error('custs',e);}
-  try{supps=await one(db.from('suppliers').select('id,name,balance'));}catch(e){console.error('supps',e);}
-  try{recentSales=await one(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5));}catch(e){console.error('recentSales',e);}
+  const q=(t,k)=>one(t).catch(e=>{console.error(k,e);try{atr('qerr',k+': '+(e&&e.message));}catch(_){}return[];});
+  [sales,prods,custs,supps,recentSales]=await Promise.all([
+    q(db.from('sales').select('total,due_amount,created_at'),'sales'),
+    q(db.from('products').select('id,name,current_stock,reorder_level,purchase_price,selling_price,unit,category').order('current_stock'),'prods'),
+    q(db.from('customers').select('id,name,balance'),'custs'),
+    q(db.from('suppliers').select('id,name,balance'),'supps'),
+    q(db.from('sales').select('*,customers(name)').order('created_at',{ascending:false}).limit(5),'recentSales'),
+  ]);
+  try{atr('home','sales='+sales.length+' prods='+prods.length+' custs='+custs.length+' supps='+supps.length+' recent='+recentSales.length);}catch(_){}
   sales=sales||[];prods=prods||[];custs=custs||[];supps=supps||[];recentSales=recentSales||[];
   const tSales=sales.filter(s=>s&&s.created_at&&toLocalDate(s.created_at)===todayLocal).reduce((a,b)=>a+ +b.total,0);
   const mSales=sales.filter(s=>s&&s.created_at&&toLocalDate(s.created_at).slice(0,7)===monthLocal).reduce((a,b)=>a+ +b.total,0);

@@ -252,7 +252,7 @@
   // ROW CACHE — small collections, short TTL, write-invalidated
   // ========================================================
   const TTL=2000;
-  const SDK_TIMEOUT=8000;
+  const SDK_TIMEOUT=2500;
   const _cache=new Map();
   const _pending=new Map();
 
@@ -260,11 +260,11 @@
   // The Firestore SDK WebChannel stalls on some browsers/network stacks
   // (reads never resolve). Once we see that, stop paying the timeout on
   // every call and go straight to REST until the cooldown expires.
-  const BREAKER={fails:0,downUntil:0,cooldown:60000};
+  const BREAKER={fails:0,downUntil:0,cooldown:120000};
   function sdkDown(){return Date.now()<BREAKER.downUntil;}
   function noteSdkFail(){
     BREAKER.fails++;
-    if(BREAKER.fails>=2&&!sdkDown()){
+    if(BREAKER.fails>=1&&!sdkDown()){
       BREAKER.downUntil=Date.now()+BREAKER.cooldown;
       if(window.atr)atr('breaker','SDK down for '+Math.round(BREAKER.cooldown/1000)+'s -> REST');
       console.warn('[firebase-sync] Firestore SDK stalled; using REST for '+BREAKER.cooldown+'ms');
