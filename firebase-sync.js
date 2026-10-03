@@ -708,24 +708,17 @@
       if(!FB_CONFIGURED)return{data:null,error:{message:'Firebase not configured'}};
       if(!opts||opts.provider!=='google')
         return{data:null,error:{message:'Only Google sign-in is supported'}};
-      if(window.atr)atr('oauth','manual-oauth-redirect');
+      const provider=new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({prompt:'select_account'});
+      if(window.atr)atr('oauth','google-attempt');
+      // Always redirect: no popups, and the result is handled by the SDK on return.
       try{
-        const st='gs'+Date.now().toString(36)+Math.random().toString(36).slice(2,10);
-        try{sessionStorage.setItem('gState',st);}catch(e){}
-        const redir=location.origin+location.pathname;
-        const url='https://accounts.google.com/o/oauth2/v2/auth'
-          +'?client_id='+encodeURIComponent(GOOGLE_OAUTH_CLIENT)
-          +'&redirect_uri='+encodeURIComponent(redir)
-          +'&response_type='+encodeURIComponent('id_token')
-          +'&scope='+encodeURIComponent('openid email profile')
-          +'&prompt='+encodeURIComponent('select_account')
-          +'&state='+encodeURIComponent(st)
-          +'&nonce='+encodeURIComponent(st);
-        window.location.href=url;
+        if(window.atr)atr('fb','signInWithRedirect');
+        await fbAuth.signInWithRedirect(provider);
         return{data:null,error:null};
       }catch(e){
-        if(window.atr)atr('fb','manualERR:'+((e&&e.message)||e));
-        return{data:null,error:{message:authErr(e),code:e.code}};
+        if(window.atr)atr('fb','redirectERR:'+((e&&e.code)||(e&&e.message)));
+        return{data:null,error:{message:authErr(e),code:e&&e.code}};
       }
     }
   };
