@@ -94,6 +94,37 @@
     pr.onerror=function(){window.atr('idb','FAIL:'+(pr.error&&pr.error.name));};
   }catch(e){window.atr('idb','throw:'+(e&&e.message));}
 
+  // global error surfacing + Firestore SDK health probe
+  try{
+    window.addEventListener('error',function(ev){
+      try{window.atr('err','onerror:'+((ev&&ev.message)||'?'));}catch(e){}
+    });
+    window.addEventListener('unhandledrejection',function(ev){
+      try{
+        var r=ev&&ev.reason;
+        window.atr('err','rej:'+(((r&&r.code)||(r&&r.message))||r));
+      }catch(e){}
+    });
+  }catch(e){}
+  window.fbProbe=function(){
+    return withTimeout(FB_BASE().collection('products').limit(3).get(),10000,'probe-timeout')
+      .then(function(s){
+        window.atr('probe','sdk-OK:'+s.size);
+        return{sdk:true,size:s.size};
+      })
+      .catch(function(e){
+        var msg=((e&&e.code)||(e&&e.message)||String(e));
+        window.atr('probe','sdk-FAIL:'+msg);
+        return loadRowsRest('products').then(function(rows){
+          window.atr('probe','rest-OK:'+rows.length);
+          return{sdk:false,rest:true,size:rows.length};
+        }).catch(function(e2){
+          window.atr('probe','rest-FAIL:'+((e2&&e2.message)||e2));
+          return{sdk:false,rest:false};
+        });
+      });
+  };
+
   // ---- Google sign-in without the handler/iframe event relay -------------
   // Firebase's redirect flow depends on a hidden __/auth/iframe posting an
   // event back; that relay never delivers on some browsers, so the SDK
@@ -193,19 +224,19 @@
       const col=FB_BASE().collection('profiles');
       const eml=(email||'').toLowerCase();
       if(eml){
-        const d=await col.doc(eml).get();
-        if(d.exists){
-          const p={...d.data()};delete p._ts;
-          try{await col.doc(String(uid)).set({...p,id:uid},{merge:true});}catch(e){}
+        const pd=await docGet('profiles',eml);
+        if(pd){
+          const p={...pd};delete p._ts;
+          try{await docSet('profiles',uid,{...p,id:uid},true);}catch(e){}
           return{...p,id:uid};
         }
       }
-      const d2=await col.doc(String(uid)).get();
-      if(d2.exists){const p={...d2.data()};delete p._ts;return{...p,id:d2.id};}
+      const p2=await docGet('profiles',uid);
+      if(p2){const p={...p2};delete p._ts;return{...p,id:uid};}
       const defRole=(eml==='hanumantkumar12@gmail.com')?'owner':'staff';
       const prof={name:(email||'User').split('@')[0],role:defRole,active:true,email:eml||null,
                   created_at:new Date().toISOString()};
-      await col.doc(eml||String(uid)).set(prof);
+      await docSet('profiles',eml||String(uid),prof,false);
       return{id:uid,...prof};
     }catch(e){console.warn('fbGetProfile:',e);return null;}
   };
@@ -214,8 +245,139 @@
   // ROW CACHE — small collections, short TTL, write-invalidated
   // ========================================================
   const TTL=2000;
+  const SDK_TIMEOUT=8000;
   const _cache=new Map();
   const _pending=new Map();
+
+  function withTimeout(p,ms,msg){
+    return new Promise((res,rej)=>{
+      let done=false;
+      const t=setTimeout(function(){if(!done){done=true;rej(new Error(msg||'timeout'));}},ms);
+      Promise.resolve(p).then(
+        v=>{if(!done){done=true;clearTimeout(t);res(v);}},
+        e=>{if(!done){done=true;clearTimeout(t);rej(e);}}
+      );
+    });
+  }
+
+  // ---- Firestore REST bridge (used when the SDK WebChannel stalls) ----
+  function restToken(){
+    if(!fbAuth||!fbAuth.currentUser)return Promise.reject(new Error('no-auth'));
+    return fbAuth.currentUser.getIdToken();
+  }
+  function restUrl(table,id){
+    let u='https://firestore.googleapis.com/v1/projects/'+FIREBASE_CONFIG.projectId+
+           '/databases/default/documents/shops/'+SID+'/'+encodeURIComponent(table);
+    if(id!==undefined&&id!==null)u+='/'+encodeURIComponent(String(id));
+    return u;
+  }
+  function restMap(fields){
+    const o={};
+    for(const k in fields){
+      const v=fields[k];
+      if(v===null||typeof v!=='object'){o[k]=v;continue;}
+      if('stringValue'in v)o[k]=v.stringValue;
+      else if('booleanValue'in v)o[k]=v.booleanValue;
+      else if('integerValue'in v)o[k]=Number(v.integerValue);
+      else if('doubleValue'in v)o[k]=Number(v.doubleValue);
+      else if('timestampValue'in v)o[k]=v.timestampValue;
+      else if('nullValue'in v)o[k]=null;
+      else if('arrayValue'in v)o[k]=(v.arrayValue.values||[]).map(function(x){return toVal2(x);});
+      else if('mapValue'in v)o[k]=restMap(v.mapValue.fields||{});
+      else o[k]=null;
+    }
+    return o;
+  }
+  function toVal2(v){
+    if(v===null||typeof v!=='object')return v;
+    if('stringValue'in v)return v.stringValue;
+    if('booleanValue'in v)return v.booleanValue;
+    if('integerValue'in v)return Number(v.integerValue);
+    if('doubleValue'in v)return Number(v.doubleValue);
+    if('timestampValue'in v)return v.timestampValue;
+    if('nullValue'in v)return null;
+    if('arrayValue'in v)return (v.arrayValue.values||[]).map(toVal2);
+    if('mapValue'in v)return restMap(v.mapValue.fields||{});
+    return null;
+  }
+  function restRow(doc){
+    const row=restMap(doc.fields||{});
+    const seg=String(doc.name||'').split('/');
+    const docId=seg.length?seg[seg.length-1]:'';
+    if(row.id===undefined||row.id===null){const n=+docId;row.id=isNaN(n)?docId:n;}
+    else if(typeof row.id==='string'&&/^-?\d+$/.test(row.id))row.id=+row.id;
+    if(row._ts!==undefined)delete row._ts;
+    return row;
+  }
+  function toVal(v){
+    if(v===null||v===undefined)return{nullValue:null};
+    if(typeof v==='boolean')return{booleanValue:v};
+    if(typeof v==='number')return Number.isInteger(v)?{integerValue:String(v)}:{doubleValue:v};
+    if(v instanceof Date)return{timestampValue:v.toISOString()};
+    if(Array.isArray(v))return{arrayValue:{values:v.map(toVal)}};
+    if(typeof v==='object')return{mapValue:{fields:toFields(v)}};
+    return{stringValue:String(v)};
+  }
+  function toFields(obj){
+    const f={};
+    for(const k in obj){if(obj[k]!==undefined)f[k]=toVal(obj[k]);}
+    return f;
+  }
+  async function loadRowsRest(table){
+    const tok=await restToken();
+    let page=null,rows=[];
+    do{
+      let u=restUrl(table)+'?pageSize=1000';
+      if(page)u+='&pageToken='+encodeURIComponent(page);
+      const r=await fetch(u,{headers:{'Authorization':'Bearer '+tok}});
+      if(!r.ok)throw new Error('rest-read-'+r.status);
+      const j=await r.json();
+      const docs=j.documents||[];
+      for(let i=0;i<docs.length;i++)rows.push(restRow(docs[i]));
+      page=j.nextPageToken||null;
+    }while(page);
+    return rows;
+  }
+  async function docSet(table,id,row,merge){
+    try{
+      await withTimeout(FB_BASE().collection(table).doc(String(id)).set(row,merge?{merge:true}:undefined),SDK_TIMEOUT,'sdk-timeout');
+      if(window.atr)atr('wmode','sdk:'+table);
+      return;
+    }catch(e){
+      if(window.atr)atr('wmode','rest:'+table);
+      const tok=await restToken();
+      const r=await fetch(restUrl(table,id),{
+        method:merge?'PATCH':'PUT',
+        headers:{'Authorization':'Bearer '+tok,'Content-Type':'application/json'},
+        body:JSON.stringify({fields:toFields(row)})
+      });
+      if(!r.ok)throw new Error('rest-write-'+r.status);
+    }
+  }
+  async function docGet(table,id){
+    try{
+      const d=await withTimeout(FB_BASE().collection(table).doc(String(id)).get(),SDK_TIMEOUT,'sdk-timeout');
+      if(d.exists)return d.data();
+      return null;
+    }catch(e){
+      const tok=await restToken();
+      const r=await fetch(restUrl(table,id),{headers:{'Authorization':'Bearer '+tok}});
+      if(r.status===404)return null;
+      if(!r.ok)throw new Error('rest-read-'+r.status);
+      const j=await r.json();
+      return restMap(j.fields||{});
+    }
+  }
+  async function docDelete(table,id){
+    try{
+      await withTimeout(FB_BASE().collection(table).doc(String(id)).delete(),SDK_TIMEOUT,'sdk-timeout');
+      return;
+    }catch(e){
+      const tok=await restToken();
+      const r=await fetch(restUrl(table,id),{method:'DELETE',headers:{'Authorization':'Bearer '+tok}});
+      if(!r.ok&&r.status!==404)throw new Error('rest-del-'+r.status);
+    }
+  }
 
   function docToRow(doc){
     const v=doc.data()||{};
@@ -234,13 +396,19 @@
     if(c&&Date.now()-c.ts<TTL)return c.rows;
     if(_pending.has(table))return _pending.get(table);
     const p=(async()=>{
+      let rows;
       try{
-        const snap=await FB_BASE().collection(table).get();
-        const rows=snap.docs.map(docToRow);
-        _cache.set(table,{ts:Date.now(),rows});
-        return rows;
-      }finally{_pending.delete(table);}
-    })();
+        const snap=await withTimeout(FB_BASE().collection(table).get(),SDK_TIMEOUT,'sdk-timeout');
+        rows=snap.docs.map(docToRow);
+        if(window.atr)atr('mode','sdk:'+table);
+      }catch(e){
+        if(window.atr)atr('mode','rest:'+table+' ['+(((e&&e.code)||(e&&e.message))||e)+']');
+        rows=await loadRowsRest(table);
+      }
+      if(window.atr)atr('sel',table+'='+rows.length);
+      _cache.set(table,{ts:Date.now(),rows});
+      return rows;
+    })().finally(function(){_pending.delete(table);});
     _pending.set(table,p);
     p.catch(()=>{});
     return p;
@@ -271,14 +439,14 @@
       let who=null;
       try{if(typeof meProfile!=='undefined'&&meProfile)who=meProfile;}catch(e){}
       const u=fbAuth.currentUser;
-      FB_BASE().collection('audit_log').doc(String(aid)).set({
+      docSet('audit_log',aid,{
         id:aid,
         acted_at:new Date().toISOString(),
         actor:u?u.uid:null,
         actor_name:who?(who.name||who.email):(u?u.email:'?'),
         action:action,table_name:table,row_id:String(rowId),
         old_row:oldRow||null,new_row:newRow||null
-      }).catch(()=>{});
+      },false).catch(()=>{});
     }catch(e){}
   }
 
@@ -483,7 +651,7 @@
       let id=d.id;
       if(id===undefined||id===null||id===''){id=maxId;maxId=id+1;}
       const row=clean({...d,id:id});
-      await FB_BASE().collection(this.table).doc(String(id)).set(row);
+      await docSet(this.table,id,row,false);
       writeAudit('INSERT',this.table,id,null,row);
       out.push(row);
     }
@@ -500,7 +668,7 @@
       const id=t.id;
       const before={...t};
       const body={...patch,id:id};
-      await FB_BASE().collection(this.table).doc(String(id)).set(body,{merge:true});
+      await docSet(this.table,id,body,true);
       const after={...t,...body};
       writeAudit('UPDATE',this.table,id,before,after);
       out.push(after);
@@ -513,9 +681,7 @@
     const rows=await loadRows(this.table);
     const targets=rows.filter(r=>this._match(r));
     if(targets.length){
-      const batch=fbDb.batch();
-      targets.forEach(t=>{batch.delete(FB_BASE().collection(this.table).doc(String(t.id)));});
-      await batch.commit();
+      for(const t of targets)await docDelete(this.table,t.id);
       targets.forEach(t=>{writeAudit('DELETE',this.table,t.id,{...t},null);});
     }
     dropCache(this.table);
@@ -544,8 +710,7 @@
       const prod=prodRows.find(p=>eqMatch(p.id,it.product_id));
       if(prod){
         const newStock=+(+prod.current_stock||0)-(+it.qty);
-        await FB_BASE().collection('products').doc(String(prod.id)).set(
-          {current_stock:newStock,updated_at:now},{merge:true});
+        await docSet('products',prod.id,{current_stock:newStock,updated_at:now},true);
         movements.push({product_id:it.product_id,qty:-it.qty,reason:'sale',
           ref_table:'sales',ref_id:saleId,created_at:now,created_by:uid});
       }
@@ -556,19 +721,19 @@
 
     const itemCol=FB_BASE().collection('sale_items');
     let itemId=nextIdFrom(await loadRows('sale_items'));
-    for(const r of itemRows){await itemCol.doc(String(itemId)).set(r);itemId++;}
+    for(const r of itemRows){await docSet('sale_items',itemId,r,false);itemId++;}
 
     const due=Math.max(v_total-(+p_paid||0),0);
     const sale={id:saleId,invoice_no:invoice_no,customer_id:(p_customer_id===undefined?null:p_customer_id),
       total:v_total,paid_amount:+p_paid||0,due_amount:due,payment_mode:p_mode||'cash',
       notes:null,created_at:now,created_by:uid};
-    await FB_BASE().collection('sales').doc(String(saleId)).set(sale);
+    await docSet('sales',saleId,sale,false);
     writeAudit('INSERT','sales',saleId,null,sale);
 
     if(movements.length){
       const mvCol=FB_BASE().collection('stock_movements');
       let mvId=nextIdFrom(await loadRows('stock_movements'));
-      for(const m of movements){await mvCol.doc(String(mvId)).set(m);mvId++;}
+      for(const m of movements){await docSet('stock_movements',mvId,m,false);mvId++;}
     }
 
     if(p_customer_id!==null&&p_customer_id!==undefined){
@@ -579,8 +744,7 @@
         if(due>0)bal+=due;
         else if((+p_paid||0)>v_total)bal-=(+p_paid-v_total);
         else if(due===0&&(+p_paid||0)===v_total)bal=bal;
-        await FB_BASE().collection('customers').doc(String(cust.id)).set(
-          {balance:bal,updated_at:now},{merge:true});
+        await docSet('customers',cust.id,{balance:bal,updated_at:now},true);
       }
     }
 
@@ -598,15 +762,14 @@
     const pay={id:payId,direction:'received',customer_id:p_customer_id,
       supplier_id:null,amount:+p_amount||0,mode:p_mode||'cash',note:p_note||null,
       created_at:now,created_by:uid};
-    await FB_BASE().collection('payments').doc(String(payId)).set(pay);
+    await docSet('payments',payId,pay,false);
     writeAudit('INSERT','payments',payId,null,pay);
 
     if(p_customer_id!==null&&p_customer_id!==undefined){
       const custRows=await loadRows('customers');
       const cust=custRows.find(c=>eqMatch(c.id,p_customer_id));
       if(cust){
-        await FB_BASE().collection('customers').doc(String(cust.id)).set(
-          {balance:(+cust.balance||0)-(+p_amount||0),updated_at:now},{merge:true});
+        await docSet('customers',cust.id,{balance:(+cust.balance||0)-(+p_amount||0),updated_at:now},true);
       }
     }
     dropCache('payments');dropCache('customers');
@@ -641,21 +804,21 @@
     }
 
     for(const docId in prodUpdates){
-      await FB_BASE().collection('products').doc(docId).set(prodUpdates[docId],{merge:true});
+      await docSet('products',docId,prodUpdates[docId],true);
     }
     const itCol=FB_BASE().collection('purchase_items');
     let itId=nextIdFrom(await loadRows('purchase_items'));
-    for(const r of itemRows){await itCol.doc(String(itId)).set(r);itId++;}
+    for(const r of itemRows){await docSet('purchase_items',itId,r,false);itId++;}
 
     const pur={id:purId,supplier_name:p_supplier||'---',total:v_total,
       paid_amount:+p_paid||0,notes:null,created_at:now,created_by:uid};
-    await FB_BASE().collection('purchases').doc(String(purId)).set(pur);
+    await docSet('purchases',purId,pur,false);
     writeAudit('INSERT','purchases',purId,null,pur);
 
     if(movements.length){
       const mvCol=FB_BASE().collection('stock_movements');
       let mvId=nextIdFrom(await loadRows('stock_movements'));
-      for(const m of movements){await mvCol.doc(String(mvId)).set(m);mvId++;}
+      for(const m of movements){await docSet('stock_movements',mvId,m,false);mvId++;}
     }
 
     dropCache('purchases');dropCache('purchase_items');dropCache('products');

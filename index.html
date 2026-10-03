@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=21"></script>
-<script src="firebase-sync.js?v=21"></script>
+<script src="config.js?v=22"></script>
+<script src="firebase-sync.js?v=22"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -368,7 +368,7 @@ function renderTraceBanner(){
     let tr=null;try{tr=JSON.parse(localStorage.getItem('authTrace')||'null');}catch(e){}
     if(!tr)return;
     const s=JSON.stringify(tr);
-    if(!(/ERR|oauth|popup|redirect|failed/.test(s)))return;
+    if(!(/ERR|oauth|popup|redirect|failed|probe|err|mode|sel|wmode/.test(s)))return;
     const out=[];
     if(tr.cb)out.push('click: '+tr.cb);
     if(tr.oauth)out.push('oauth: '+tr.oauth);
@@ -385,6 +385,11 @@ function renderTraceBanner(){
     if(tr.iframes)out.push('auth iframes: '+tr.iframes);
     if(tr.ss)out.push('sessionStorage: '+tr.ss);
     if(tr.idb)out.push('indexedDB: '+tr.idb);
+    if(tr.probe)out.push('firestore probe: '+tr.probe);
+    if(tr.mode)out.push('read path: '+tr.mode);
+    if(tr.sel)out.push('rows: '+tr.sel);
+    if(tr.wmode)out.push('write path: '+tr.wmode);
+    if(tr.err)out.push('JS ERROR: '+tr.err);
     let extra='';
     try{
       const ae=localStorage.getItem('authErr');
@@ -486,6 +491,32 @@ async function doForgotPass(){
   }catch(e){toast('⚠ '+(e.message||'Could not send email'));}
 }
 async function logout(){await fbLogout();location.reload();}
+function floatingDbg(){
+  try{
+    let tr=null;try{tr=JSON.parse(localStorage.getItem('authTrace')||'null');}catch(e){}
+    if(!tr)return;
+    const lines=[];
+    if(tr.probe)lines.push('firestore: '+tr.probe);
+    if(tr.mode)lines.push('read: '+tr.mode);
+    if(tr.sel)lines.push('rows: '+tr.sel);
+    if(tr.wmode)lines.push('write: '+tr.wmode);
+    if(tr.err)lines.push('JS ERROR: '+tr.err);
+    if(tr.boot)lines.push('boot: '+tr.boot);
+    if(tr.fbLogin)lines.push('password: '+tr.fbLogin);
+    if(!lines.length)return;
+    let b=document.getElementById('dbgBox');
+    if(!b){
+      b=document.createElement('pre');
+      b.id='dbgBox';
+      b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:9999;margin:0;padding:10px;'+
+        'background:#111;color:#0f0;font:11px/1.45 monospace;white-space:pre-wrap;max-height:42vh;overflow:auto;'+
+        'border-top:2px solid #0f0';
+      document.body.appendChild(b);
+    }
+    b.textContent=lines.join('\n')+'\n(tap to dismiss)';
+    b.onclick=function(){b.remove();};
+  }catch(e){}
+}
 async function boot(){
   if(!CONFIGURED)return;
   try{
@@ -497,9 +528,10 @@ async function boot(){
     if(!prof)prof={name:user.email,role:'owner'};
     meProfile={...prof,email:user.email};
     $('v-auth').style.display='none';
-    try{localStorage.removeItem('authTrace');localStorage.removeItem('authErr');const bb=document.getElementById('authBanner');if(bb)bb.remove();}catch(_){}
     $('hdr').style.display='flex';$('app').style.display='block';$('navbar').style.display='flex';
     applyI18n();render('home');
+    try{if(window.fbProbe)window.fbProbe();}catch(_){}
+    try{setTimeout(floatingDbg,2500);}catch(_){}
   }catch(e){console.error('boot failed',e);try{atr('boot','ERR '+((e&&e.message)||e));}catch(_){}showAuthErr('Login failed: '+((e&&e.message)||e));$('v-auth').style.display='block';}
 }
 
