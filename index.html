@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=26"></script>
-<script src="firebase-sync.js?v=26"></script>
+<script src="config.js?v=27"></script>
+<script src="firebase-sync.js?v=27"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -1785,7 +1785,7 @@ if(CONFIGURED){
     window.__googleTokenReady.then(function(){renderTraceBanner();}).catch(function(){renderTraceBanner();});
   }else if(!window.__googleFragmentHandled){
   try{
-    fbAuth.getRedirectResult().then(r=>{
+    ((fbAuth.getRedirectResult && fbAuth.getRedirectResult()) || Promise.resolve(null)).then(r=>{
       const v=(r&&r.error)?('ERR '+(r.error.code||r.error.message)):(r&&r.user?('user:'+(r.user.email||r.user.uid)):'no-user-no-error');
       try{atr('rr',v+' @'+(performance.now()/1000).toFixed(1)+'s');}catch(_){}
       if(r&&r.error){
