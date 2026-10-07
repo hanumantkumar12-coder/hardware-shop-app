@@ -451,7 +451,7 @@
     const c=_cache.get(table);
     if(c&&Date.now()-c.ts<TTL)return c.rows;
     if(_pending.has(table))return _pending.get(table);
-    const p=(async()=>{
+    const prom=(async()=>{
       let rows;
       if(sdkDown()){
         if(window.atr)atr('mode','rest:'+table+' [breaker]');
@@ -471,10 +471,11 @@
       if(window.atr)atr('sel',table+'='+rows.length);
       _cache.set(table,{ts:Date.now(),rows});
       return rows;
-    })().finally(function(){_pending.delete(table);});
-    _pending.set(table,p);
-    p.catch(()=>{});
-    return p;
+    })();
+    prom.finally(function(){_pending.delete(table);});
+    _pending.set(table,prom);
+    prom.catch(function(){});
+    return prom;
   }
   function dropCache(t){if(t)_cache.delete(t);else _cache.clear();}
 
