@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=28"></script>
-<script src="firebase-sync.js?v=28"></script>
+<script src="config.js?v=29"></script>
+<script src="firebase-sync.js?v=29"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -248,11 +248,11 @@ html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans Dev
     <div class="auth-logo">HK</div>
     <div class="auth-title">HK Shop Hisaab</div>
     <div class="auth-sub">Stock • Sales • Udhaar • Audit</div>
-    <div class="auth-field"><label>Email</label><input id="li-email" type="email" placeholder="owner@gmail.com"></div>
-    <div class="auth-field"><label>Password</label><input id="li-pass" type="password" placeholder="••••••••"></div>
-    <button class="auth-btn primary" onclick="doLogin()" data-i18n="login">Login</button>
-    <div style="text-align:center;margin-top:10px"><a href="#" onclick="doForgotPass()" style="font-size:13px;color:var(--green);text-decoration:none">Forgot Password?</a></div>
-    <div class="auth-divider">OR</div>
+
+
+
+
+
     <button class="auth-btn google" onclick="doGoogle()"><img src="https://www.gstatic.com/images/branding/product/1x/gsa_48dp.png" width="18">Continue with Google</button>
     <div class="auth-note">New member? Ask the owner to invite you.</div>
   </div>
@@ -346,7 +346,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:2});
 const toast=(m)=>{const el=$('toast');el.textContent=m;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200);};
-function authBanner(msg){
+function authBanner(msg){ return;
   try{
     const card=document.querySelector('#v-auth .auth-card');if(!card)return;
     let b=document.getElementById('authBanner');
@@ -356,12 +356,12 @@ function authBanner(msg){
     b.textContent=msg;
   }catch(e){}
 }
-function showAuthErr(msg){
+function showAuthErr(msg){ toast(msg); return;
   authBanner(msg);
   try{localStorage.setItem('authErr',Date.now()+'|'+msg);}catch(e){}
   try{toast('⚠ '+msg);}catch(e){}
 }
-function renderTraceBanner(){
+function renderTraceBanner(){ return;
   try{
     if($('v-auth').style.display==='none')return;
     let tr=null;try{tr=JSON.parse(localStorage.getItem('authTrace')||'null');}catch(e){}
@@ -493,7 +493,7 @@ async function doForgotPass(){
   }catch(e){toast('⚠ '+(e.message||'Could not send email'));}
 }
 async function logout(){await fbLogout();location.reload();}
-function floatingDbg(quiet){
+function floatingDbg(quiet){ return;
   try{
     let tr=null;try{tr=JSON.parse(localStorage.getItem('authTrace')||'null');}catch(e){}
     if(!tr)return;
