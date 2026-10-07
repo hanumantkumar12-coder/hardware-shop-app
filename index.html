@@ -18,8 +18,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="config.js?v=29"></script>
-<script src="firebase-sync.js?v=29"></script>
+<script src="config.js?v=30"></script>
+<script src="firebase-sync.js?v=30"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--green:#1a8917;--green-dark:#146b12;--green-light:#e8f5e9;--orange:#ff6d00;--orange-light:#fff3e0;--red:#e53935;--red-light:#ffebee;--blue:#1565c0;--blue-light:#e3f2fd;--gray:#f5f7fa;--text:#1a1a2e;--text2:#6b7280;--card:#fff;--shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px}
@@ -1793,7 +1793,7 @@ if(CONFIGURED){
         showAuthErr('Google sign-in failed: '+m);
       }else if(r&&r.user&&!meProfile){boot();}
       renderTraceBanner();
-    }).catch(e=>{try{atr('rr','ERR '+((e&&e.message)||e)+' @'+(performance.now()/1000).toFixed(1)+'s');}catch(_){}renderTraceBanner();});
+    }).catch(e=>{try{const em=((e&&e.message)||e)+'';atr('rr','ERR '+em+' @'+(performance.now()/1000).toFixed(1)+'s');if(em.includes('missing initial state')){window.__googleFragmentHandled=false;window.location.reload();}}catch(_){}renderTraceBanner();});
   }catch(e){}
   }
   renderTraceBanner();
