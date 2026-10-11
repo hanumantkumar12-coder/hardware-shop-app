@@ -89,6 +89,15 @@
   // storage health probes — shown in the login debug banner
   try{sessionStorage.setItem('p','1');sessionStorage.removeItem('p');window.atr('ss','ok');}catch(e){window.atr('ss','FAIL');}
   try{
+    var _prs=[],_i2;
+    for(_i2=0;_i2<sessionStorage.length;_i2++){
+      var _k=sessionStorage.key(_i2);
+      if(_k&&/pendingRedirect/i.test(_k))
+        _prs.push(_k.replace(/AIza[A-Za-z0-9_-]{8,}/,'<key>')+'='+sessionStorage.getItem(_k));
+    }
+    window.atr('pend',_prs.length?_prs.join(' | '):'none');
+  }catch(e){window.atr('pend','FAIL');}
+  try{
     var pr=indexedDB.open('probe'+Date.now());
     pr.onsuccess=function(){window.atr('idb','ok');try{pr.result.close();}catch(e){}};
     pr.onerror=function(){window.atr('idb','FAIL:'+(pr.error&&pr.error.name));};
@@ -209,16 +218,29 @@
   window.fbGetCurrentUser=function(){
     if(!FB_CONFIGURED)return Promise.resolve(null);
     return new Promise(resolve=>{
-      let done=false;
+      let done=false,timer=null;
+      // Give an in-flight sign-in (redirect return, popup, credential trade)
+      // a grace period before we declare "signed out": onAuthStateChanged
+      // always fires null first, and bailing on that first callback is what
+      // used to leave the login screen up forever.
+      const GRACE_MS=6000;
       try{window.atr&&atr('u','wait');}catch(e){}
+      const finish=u=>{
+        if(done)return;
+        done=true;
+        try{unsub();}catch(e){}
+        if(timer)clearTimeout(timer);
+        try{window.atr&&atr('u',u?('done:'+(u.email||u.uid)):'done:null');}catch(e){}
+        resolve(u);
+      };
       const unsub=fbAuth.onAuthStateChanged(u=>{
         try{window.atr&&atr('u','cb:'+(u?('user:'+(u.email||u.uid)):'null'));}catch(e){}
-        if(!done){done=true;try{unsub();}catch(e){}resolve(u);}
+        if(u)finish(u);
       });
-      setTimeout(()=>{
-        try{window.atr&&atr('u','timeout->'+(fbAuth.currentUser?'user':'null'));}catch(e){}
-        if(!done){done=true;try{unsub();}catch(e){}resolve(fbAuth.currentUser);}
-      },3000);
+      timer=setTimeout(()=>{
+        try{window.atr&&atr('u','grace->'+(fbAuth.currentUser?'user':'null'));}catch(e){}
+        finish(fbAuth.currentUser);
+      },GRACE_MS);
     });
   };
 
@@ -938,14 +960,31 @@
       const provider=new firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({prompt:'select_account'});
       if(window.atr)atr('oauth','google-attempt');
-      // Always redirect: no popups, and the result is handled by the SDK on return.
+      // Popup first: the auth event comes straight back through the auth
+      // iframe into this page, so it does not depend on the pendingRedirect
+      // session flag surviving a cross-origin round trip (which it does not
+      // on some mobile browsers). Fall back to redirect if blocked.
       try{
-        if(window.atr)atr('fb','signInWithRedirect');
-        await fbAuth.signInWithRedirect(provider);
-        return{data:null,error:null};
+        if(window.atr)atr('fb','popup-attempt');
+        const cred=await fbAuth.signInWithPopup(provider);
+        if(window.atr)atr('fb','popup-ok:'+(cred&&cred.user&&(cred.user.email||cred.user.uid)||'?'));
+        return{data:{user:cred&&cred.user},error:null};
       }catch(e){
-        if(window.atr)atr('fb','redirectERR:'+((e&&e.code)||(e&&e.message)));
-        return{data:null,error:{message:authErr(e),code:e&&e.code}};
+        const code=(e&&e.code)||'';
+        if(window.atr)atr('fb','popupERR:'+code);
+        const blocked=(code==='auth/popup-blocked'||
+                       code==='auth/cancelled-popup-request'||
+                       code==='auth/popup-closed-by-user'||
+                       code==='auth/operation-not-supported-in-this-environment');
+        if(!blocked)return{data:null,error:{message:authErr(e),code:code}};
+        try{
+          if(window.atr)atr('fb','fallback-redirect');
+          await fbAuth.signInWithRedirect(provider);
+          return{data:null,error:null};
+        }catch(e2){
+          if(window.atr)atr('fb','redirectERR:'+((e2&&e2.code)||(e2&&e2.message)));
+          return{data:null,error:{message:authErr(e2),code:e2&&e2.code}};
+        }
       }
     }
   };
